@@ -81,7 +81,7 @@ typedef struct
                                      search */
                 right_start_pos;
   GtArraySeed TSDs;               /* array to store the TSDs */
-}TSDinfo;
+} TSDinfo;
 
 typedef enum {
   GT_TIR_STREAM_STATE_START,
@@ -482,10 +482,13 @@ static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
 
     /* TODO: vor einem aufruf hier passiert ab einer gewissen
        größe ein speicherzugriffsfehler */
-    gt_encseq_extract_encoded(encseq,dbseq,start_left_tir,end_left_tir);
-    gt_encseq_extract_encoded(encseq,query,start_right_tir,end_right_tir);
+    gt_encseq_extract_decoded(encseq,(char*)dbseq,start_left_tir,end_left_tir);
+    gt_encseq_extract_decoded(encseq,(char*)query,start_right_tir,
+    end_right_tir);
 
     GT_INITARRAY(&info.TSDs, Seed);
+    printf("TSD: %lu/%lu\n", start_left_tir, start_right_tir);
+    printf("%s, %s\n", dbseq, query);
     gt_assert(start_left_tir < start_right_tir);
     info.left_start_pos = start_left_tir;
     info.right_start_pos = start_right_tir;
@@ -546,6 +549,18 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
   for (seedcounter = 0; seedcounter < tir_stream->seedinfo.seed.nextfreeSeed;
        seedcounter++) {
     seedptr = &(tir_stream->seedinfo.seed.spaceSeed[seedcounter]);
+
+    printf("seed: %lu/%lu\n", seedptr->pos1, seedptr->pos2);
+
+GtUchar *dbseq, *query;
+ALLOCASSIGNSPACE(dbseq,NULL,GtUchar,seedptr->len+1);
+ALLOCASSIGNSPACE(query,NULL,GtUchar,seedptr->len+1);
+gt_encseq_extract_decoded(encseq,(char*)dbseq,seedptr->pos1,
+ seedptr->pos1+seedptr->len);
+gt_encseq_extract_decoded(encseq,(char*)query,seedptr->pos2,
+  seedptr->pos2+seedptr->len);
+printf("%s, %s\n", dbseq, query);
+
     GT_INITARRAY (&fronts, Myfrontvalue);
     gt_evalxdroparbitscoresleft(&tir_stream->arbit_scores,
                                &xdropbest_left,
@@ -1016,7 +1031,7 @@ GtNodeStream* gt_tir_stream_new(GtStr *str_indexname,
                                                 SARR_LCPTAB | SARR_SUFTAB |
                                                 SARR_ESQTAB | SARR_DESTAB |
                                                 SARR_SSPTAB | SARR_SDSTAB,
-                                                SEQ_mappedboth,
+                                                SEQ_scan,
                                                 NULL,
                                                 err);
   if (tir_stream->ssar == NULL) {
