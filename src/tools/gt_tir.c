@@ -1,7 +1,8 @@
 /*
-  Copyright (c) 2012 Manuela Beckert <9beckert@informatik.uni-hamburg.de>
-  Copyright (c) 2012 Dorle Osterode <9osterod@informatik.uni-hamburg.de>
-  Copyright (c) 2012 Center for Bioinformatics, University of Hamburg
+  Copyright (c) 2012      Manuela Beckert <9beckert@informatik.uni-hamburg.de>
+  Copyright (c) 2012      Dorle Osterode <9osterod@informatik.uni-hamburg.de>
+  Copyright (c) 2012-2013 Sascha Steinbiss <steinbiss@informatik.uni-hamburg.de>
+  Copyright (c) 2012-2013 Center for Bioinformatics, University of Hamburg
 
   Permission to use, copy, modify, and distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -16,17 +17,12 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-/*
- * Finds Terminal Inverted Repeats and does... something... with them.
- * To be edited when we know more.
- */
-
 #include "core/ma.h"
 #include "core/undef_api.h"
 #include "core/unused_api.h"
 #include "extended/gff3_out_stream_api.h"
 #include "extended/tir_stream.h"
-#include "ltr/ltr_xdrop.h"
+#include "match/xdrop.h"
 #include "tools/gt_tir.h"
 
 /* struct with all arguments */
@@ -37,7 +33,7 @@ typedef struct {
                 max_TIR_length,
                 min_TIR_distance,
                 max_TIR_distance;
-  Arbitraryscores arbit_scores;
+  GtXdropArbitraryscores arbit_scores;
   int xdrop_belowscore;
   double similarity_threshold;
   GtStr *str_overlaps;

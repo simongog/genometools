@@ -31,15 +31,14 @@
 #include "extended/genome_node.h"
 #include "extended/node_stream_api.h"
 #include "extended/region_node_api.h"
-#include "ltr/ltr_xdrop.h"
+#include "extended/tir_stream.h"
 #include "match/esa-maxpairs.h"
 #include "match/esa-mmsearch.h"
 #include "match/esa-seqread.h"
 #include "match/greedyedist.h"
-#include "match/spacedef.h"
 #include "match/querymatch.h"
-#include "tools/gt_tir_stream.h"
-
+#include "match/xdrop.h"
+#include "extended/tir_stream.h"
 typedef struct
 {
   unsigned long pos1;         /* position of first seed */
@@ -110,7 +109,7 @@ struct GtTIRStream
                               max_TIR_length,
                               min_TIR_distance,
                               max_TIR_distance;
-  Arbitraryscores             arbit_scores;
+  GtXdropArbitraryscores      arbit_scores;
   int                         xdrop_belowscore;
   double                      similarity_threshold;
   bool                        no_overlaps;
@@ -477,8 +476,8 @@ static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
   if (tir_stream->min_TSD_length > 1U) {
     /* dbseq (left) and query (right) are the encseqs wich will be aligned */
     GtUchar *dbseq, *query;
-    ALLOCASSIGNSPACE(dbseq,NULL,GtUchar,left_length);
-    ALLOCASSIGNSPACE(query,NULL,GtUchar,right_length);
+    dbseq = gt_calloc(left_length, sizeof (GtUchar));
+    query = gt_calloc(right_length, sizeof (GtUchar));
 
     /* TODO: vor einem aufruf hier passiert ab einer gewissen
        größe ein speicherzugriffsfehler */
@@ -505,9 +504,8 @@ static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
                                    err) != 0) {
        had_err = -1;
     }
-
-    FREESPACE(dbseq);
-    FREESPACE(query);
+    gt_free(dbseq);
+    gt_free(query);
 
     /* find the best TSD */
     if (!had_err)
@@ -528,9 +526,7 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
   GtArrayTIRPair new;             /* need to remove overlaps */
   unsigned long right_tir_start;  /* need to calculate the reverse position */
   unsigned long right_tir_end;    /* need to calculate the reverse position */
-  GtArrayMyfrontvalue fronts; /* needed to use xdrop */
-  Myxdropbest xdropbest_left; /* return parameters for xdrop */
-  Myxdropbest xdropbest_right;
+  GtXdropresources *xdropresources;
   unsigned long total_length = 0,
                 left_tir_length = 0,
                 right_tir_length = 0,
@@ -548,23 +544,18 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
   /* Iterating over seeds */
   for (seedcounter = 0; seedcounter < tir_stream->seedinfo.seed.nextfreeSeed;
        seedcounter++) {
+    GtUchar *dbseq, *query;
+
     seedptr = &(tir_stream->seedinfo.seed.spaceSeed[seedcounter]);
+//    printf("seed: %lu/%lu\n", seedptr->pos1, seedptr->pos2);
+    dbseq = gt_calloc(seedptr->len+1, sizeof (GtUchar));
+    query = gt_calloc(seedptr->len+1, sizeof (GtUchar));
+    gt_encseq_extract_decoded(encseq,(char*)dbseq, seedptr->pos1,
+                              seedptr->pos1+seedptr->len);
+    gt_encseq_extract_decoded(encseq,(char*)query, seedptr->pos2,
+                              seedptr->pos2+seedptr->len);
 
-    printf("seed: %lu/%lu\n", seedptr->pos1, seedptr->pos2);
-
-GtUchar *dbseq, *query;
-ALLOCASSIGNSPACE(dbseq,NULL,GtUchar,seedptr->len+1);
-ALLOCASSIGNSPACE(query,NULL,GtUchar,seedptr->len+1);
-gt_encseq_extract_decoded(encseq,(char*)dbseq,seedptr->pos1,
- seedptr->pos1+seedptr->len);
-gt_encseq_extract_decoded(encseq,(char*)query,seedptr->pos2,
-  seedptr->pos2+seedptr->len);
-printf("%s, %s\n", dbseq, query);
-
-    GT_INITARRAY (&fronts, Myfrontvalue);
-    gt_evalxdroparbitscoresleft(&tir_stream->arbit_scores,
-                               &xdropbest_left,
-                               &fronts,
+    gt_evalxdroparbitscoresleft(&xdropbest_left,
                                encseq,
                                encseq,
                                seedptr->pos1,

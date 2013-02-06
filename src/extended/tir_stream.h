@@ -21,6 +21,7 @@
 #define TIR_STREAM_H
 
 #include "extended/node_stream_api.h"
+#include "match/xdrop.h"
 
 /* implements the "genome stream" interface */
 typedef struct GtTIRStream GtTIRStream;
@@ -33,7 +34,7 @@ GtNodeStream* gt_tir_stream_new(GtStr *str_indexname,
                                 unsigned long max_TIR_length,
                                 unsigned long min_TIR_distance,
                                 unsigned long max_TIR_distance,
-                                Arbitraryscores arbit_scores,
+                                GtXdropArbitraryscores arbit_scores,
                                 int xdrop_belowscore,
                                 double similarity_threshold,
                                 bool best_overlaps,
