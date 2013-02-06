@@ -17,8 +17,8 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-#ifndef GT_TIR_STREAM_H
-#define GT_TIR_STREAM_H
+#ifndef TIR_STREAM_H
+#define TIR_STREAM_H
 
 #include "extended/node_stream_api.h"
 
@@ -26,7 +26,6 @@
 typedef struct GtTIRStream GtTIRStream;
 
 /* XXX: Needs documentation. */
-
 const GtNodeStreamClass* gt_tir_stream_class(void);
 GtNodeStream* gt_tir_stream_new(GtStr *str_indexname,
                                 unsigned long min_seed_length,

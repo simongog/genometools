@@ -25,9 +25,9 @@
 #include "core/undef_api.h"
 #include "core/unused_api.h"
 #include "extended/gff3_out_stream_api.h"
+#include "extended/tir_stream.h"
 #include "ltr/ltr_xdrop.h"
 #include "tools/gt_tir.h"
-#include "tools/gt_tir_stream.h"
 
 /* struct with all arguments */
 typedef struct {
