@@ -1,6 +1,7 @@
 changes in version 1.5.1 (??)
 
 - LTRharvest now partially multithreaded , use `gt -j'
+- LTRharvest now outputs sequence IDs (optionally MD5 tagged)
 
 
 changes in version 1.5.0 (2013-02-05)
