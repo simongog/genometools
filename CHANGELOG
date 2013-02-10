@@ -4,15 +4,24 @@ changes in version 1.5.2 (2013-XX-XX)
 - options `-j' and GT_MEM_BOOKKEEPING now usable together in a multithreaded
   environment
 - automatic man page building (`gt -createman') implemented
-- LTRharvest seed extension now multithreaded , use `gt -j'
+- LTRharvest seed extension now multithreaded , use `gt -j' and the make option
+  `threads=yes'
 - LTRharvest internal pipeline restructured to be deterministic during
   multithreaded runs
+- LTRharvest now considers transitively overlapping candidates in `-overlaps'
+  option
 - LTRharvest optionally outputs GFF3 on stdout for piping (option `-tabout')
 - LTRharvest now outputs sequence IDs (optionally MD5 tagged, options `-seqids'
   and `-md5')
 - LTRdigest now accepts `-seqfile(s)', `-regionmapping', `-encseq',
   `-matchdesc', `-usedesc' options
+- LTRdigest now uses external hmmscan/hmmpress binaries, no HMMER code will be
+  built into gt (licensing and redistributability reasons)
+- LTRdigest output does not contain Pfam IDs anymore
+- LTRdigest now assigns a strand to _every_ feature in element CC if possible
+- LTRdigest code refactored for reusability
 - samtools updated to 0.1.19
+
 
 changes in version 1.5.1 (2013-03-07)
 
