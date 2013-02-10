@@ -1170,9 +1170,11 @@ typedef struct {
 
 static void* gt_searchforLTRs_threadfunc(void *data) {
   GtLTRharvestThreadInfo *info = (GtLTRharvestThreadInfo*) data;
+  GT_UNUSED int rval;
   gt_assert(info);
-  gt_searchforLTRs(info->lo, info->arrayLTRboundaries, info->rmutex,
-                   info->wmutex, &info->cur_seed, info->err);
+  rval = gt_searchforLTRs(info->lo, info->arrayLTRboundaries, info->rmutex,
+                          info->wmutex, &info->cur_seed, info->err);
+  gt_assert(rval == 0);
   return NULL;
 }
 
@@ -1286,11 +1288,12 @@ static int gt_ltrharvest_stream_next(GtNodeStream *ns,
                                      GtGenomeNode **gn,
                                      GtError *err)
 {
-  GtLTRharvestStream *ltrh_stream = gt_ltrharvest_stream_cast(ns);
+  GtLTRharvestStream *ltrh_stream;
   GtLTRharvestThreadInfo threadinfo;
   int had_err = 0;
   gt_error_check(err);
 
+  ltrh_stream = gt_ltrharvest_stream_cast(ns);
   if (ltrh_stream->state == GT_LTRHARVEST_STREAM_STATE_START) {
     GT_INITARRAY(&ltrh_stream->repeatinfo.repeats, Repeat);
     ltrh_stream->prevseqnum = GT_UNDEF_ULONG;

@@ -33,11 +33,6 @@ GtNodeStream* gt_ltr_fileout_stream_new(GtNodeStream *in_stream,
                                         int tests_to_run,
                                         GtRegionMapping *rmap,
                                         char *file_prefix,
-                                        GtPPTOptions *ppt_opts,
-                                        GtPBSOptions *pbs_opts,
-#ifdef HAVE_HMMER
-                                        GtPdomOptions *pdom_opts,
-#endif
                                         const char *trnafilename,
                                         const char *gfffilename,
                                         unsigned int seqnamelen,

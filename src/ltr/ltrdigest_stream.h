@@ -21,11 +21,6 @@
 #include "core/error_api.h"
 #include "extended/node_stream_api.h"
 #include "extended/region_mapping_api.h"
-#include "ltr/pbs.h"
-#include "ltr/ppt.h"
-#ifdef HAVE_HMMER
-#include "ltr/pdom.h"
-#endif
 
 /* implements the ``node stream'' interface */
 typedef struct GtLTRdigestStream GtLTRdigestStream;
@@ -35,11 +30,6 @@ const GtNodeStreamClass* gt_ltrdigest_stream_class(void);
 GtNodeStream* gt_ltrdigest_stream_new(GtNodeStream *in_stream,
                                       int tests_to_run,
                                       GtRegionMapping *rmap,
-                                      GtPBSOptions *pbs_opts,
-                                      GtPPTOptions *ppt_opts,
-#ifdef HAVE_HMMER
-                                      GtPdomOptions *pdom_opts,
-#endif
                                       GtError *err);
 
 #endif

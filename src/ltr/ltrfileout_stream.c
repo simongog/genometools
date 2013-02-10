@@ -30,6 +30,7 @@
 #include "core/range.h"
 #include "core/str.h"
 #include "core/symbol.h"
+#include "core/undef_api.h"
 #include "core/unused_api.h"
 #include "extended/extract_feature_sequence.h"
 #include "extended/node_stream_api.h"
@@ -170,6 +171,7 @@ static int write_pdom(GtLTRFileOutStream *ls, GtArray *pdoms,
     if (ls->write_pdom_alignments && ali)
     {
       char buf[BUFSIZ];
+
       /* write away alignment */
       (void) snprintf(buf, BUFSIZ-1, "Protein domain alignment in translated "
                                      "sequence for candidate\n'%s':\n\n",
@@ -472,7 +474,7 @@ int gt_ltrfileout_stream_next(GtNodeStream *ns, GtGenomeNode **gn, GtError *err)
       gt_str_reset(seq);
     }
     gt_file_xprintf(ls->tabout_file, "\n");
-    gt_free(seq);
+    gt_str_delete(seq);
   }
   gt_hashmap_delete(ls->element.pdoms);
   gt_array_delete(ls->element.pdomorder);
@@ -480,14 +482,9 @@ int gt_ltrfileout_stream_next(GtNodeStream *ns, GtGenomeNode **gn, GtError *err)
   return had_err;
 }
 
-static void write_metadata(GtFile *metadata_file,
-                           int tests_to_run,
-                           GtPPTOptions *ppt_opts,
-                           GtPBSOptions *pbs_opts,
-#ifdef HAVE_HMMER
-                           GtPdomOptions *pdom_opts,
-#endif
-                           const char *trnafilename,
+GT_UNUSED static void write_metadata(GtFile *metadata_file,
+                           GT_UNUSED int tests_to_run,
+                           GT_UNUSED const char *trnafilename,
                            const char *gfffilename)
 {
   int buflen = 1024;
@@ -509,7 +506,7 @@ static void write_metadata(GtFile *metadata_file,
     gt_file_xprintf(metadata_file,
                        "GFF3 input used\t%s\n", gfffilename);
 
-  if (tests_to_run & GT_LTRDIGEST_RUN_PPT)
+/*  if (tests_to_run & GT_LTRDIGEST_RUN_PPT)
   {
     gt_file_xprintf(metadata_file,
                        "PPT length\t%lu-%lunt\t8-30nt\n",
@@ -521,9 +518,9 @@ static void write_metadata(GtFile *metadata_file,
                        ppt_opts->ubox_len.end);
     gt_file_xprintf(metadata_file,
                        "PPT search radius\t%u\t30\n", ppt_opts->radius);
-  }
+  } */
 
-  if (tests_to_run & GT_LTRDIGEST_RUN_PBS)
+  /* if (tests_to_run & GT_LTRDIGEST_RUN_PBS)
   {
     if (trnafilename[0] != '/')
       gt_file_xprintf(metadata_file,
@@ -553,10 +550,10 @@ static void write_metadata(GtFile *metadata_file,
                        pbs_opts->trnaoffsetlen.end);
     gt_file_xprintf(metadata_file,
                        "PBS search radius\t%d\t30\n", pbs_opts->radius);
-  }
+  }*/
 
 #ifdef HAVE_HMMER
-  if (tests_to_run & GT_LTRDIGEST_RUN_PDOM)
+/*  if (tests_to_run & GT_LTRDIGEST_RUN_PDOM)
   {
     unsigned long i;
     gt_file_xprintf(metadata_file,
@@ -579,7 +576,7 @@ static void write_metadata(GtFile *metadata_file,
                        " \t%u\t%u\n",
                        pdom_opts->chain_max_gap_length,
                        50);
-  }
+  }*/
 #endif
   gt_file_xprintf(metadata_file, "\n");
   gt_free(buffer);
@@ -626,7 +623,6 @@ void gt_ltr_fileout_stream_enable_pdom_alignment_output(GtNodeStream *ns)
 {
   GtLTRFileOutStream *ls;
   gt_assert(ns);
-
   ls = gt_ltr_fileout_stream_cast(ns);
   ls->write_pdom_alignments = true;
 }
@@ -635,7 +631,6 @@ void gt_ltr_fileout_stream_enable_aa_sequence_output(GtNodeStream *ns)
 {
   GtLTRFileOutStream *ls;
   gt_assert(ns);
-
   ls = gt_ltr_fileout_stream_cast(ns);
   ls->write_pdom_aaseqs = true;
 }
@@ -644,13 +639,8 @@ GtNodeStream* gt_ltr_fileout_stream_new(GtNodeStream *in_stream,
                                      int tests_to_run,
                                      GtRegionMapping *rmap,
                                      char *file_prefix,
-                                     GtPPTOptions *ppt_opts,
-                                     GtPBSOptions *pbs_opts,
-#ifdef HAVE_HMMER
-                                     GtPdomOptions *pdom_opts,
-#endif
-                                     const char *trnafilename,
-                                     const char *gfffilename,
+                                     GT_UNUSED const char *trnafilename,
+                                     GT_UNUSED const char *gfffilename,
                                      unsigned int seqnamelen,
                                      GtError* err)
 {
@@ -659,11 +649,7 @@ GtNodeStream* gt_ltr_fileout_stream_new(GtNodeStream *in_stream,
   char fn[GT_MAXFILENAMELEN];
   gt_error_check(err);
 
-  gt_assert(file_prefix && in_stream && rmap && ppt_opts && pbs_opts
-#ifdef HAVE_HMMER
-    && pdom_opts
-#endif
-    );
+  gt_assert(file_prefix && in_stream && rmap);
 
   ns = gt_node_stream_create(gt_ltr_fileout_stream_class(), false);
   ls = gt_ltr_fileout_stream_cast(ns);
@@ -715,15 +701,14 @@ GtNodeStream* gt_ltr_fileout_stream_new(GtNodeStream *in_stream,
                                      (GtFree) gt_file_delete);
 
   /* log run conditions in file */
-  write_metadata(ls->metadata_file,
+  /* write_metadata(ls->metadata_file,
                  tests_to_run,
-                 ppt_opts,
                  pbs_opts,
 #ifdef HAVE_HMMER
                  pdom_opts,
 #endif
                  trnafilename,
-                 gfffilename);
+                 gfffilename); */
 
   /* print tabular outfile headline */
   gt_file_xprintf(ls->tabout_file,

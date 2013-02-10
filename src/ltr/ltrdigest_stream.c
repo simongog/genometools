@@ -38,12 +38,6 @@ struct GtLTRdigestStream {
   GtNodeStream *in_stream;
   GtEncseq *encseq;
   GtRegionMapping *rmap;
-  GtPBSOptions *pbs_opts;
-  GtPPTOptions *ppt_opts;
-#ifdef HAVE_HMMER
-  GtPdomFinder *pdf;
-  GtPdomOptions *pdom_opts;
-#endif
   GtLTRVisitor *lv;
   GtStr *ltrdigest_tag;
   int tests_to_run;
@@ -55,197 +49,8 @@ struct GtLTRdigestStream {
 #define gt_ltrdigest_stream_cast(GS)\
         gt_node_stream_cast(gt_ltrdigest_stream_class(), GS)
 
-#ifdef HAVE_HMMER
-static int pdom_hit_attach_gff3(GtPdomModel *model, GtPdomModelHit *hit,
-                                void *data, GT_UNUSED GtError *err)
-{
-  unsigned long i;
-  GtRange rng;
-  GtLTRdigestStream *ls = (GtLTRdigestStream *) data;
-  GtStrand strand;
-  gt_assert(model && hit);
-
-  strand = gt_pdom_model_hit_get_best_strand(hit);
-  /* do not use the hits on the non-predicted strand
-      -- maybe identify nested elements ? */
-  if (strand != gt_feature_node_get_strand(ls->element.mainnode))
-    return 0;
-
-  for (i=0;i<gt_pdom_model_hit_num_of_single_hits(hit);i++)
-  {
-    GtGenomeNode *gf;
-    GtStr *alignmentstring,
-          *aastring;
-    GtPdomSingleHit *singlehit;
-    GtPhase frame;
-
-    singlehit = gt_pdom_model_hit_single_hit(hit, i);
-    alignmentstring = gt_str_new();
-    aastring = gt_str_new();
-    frame = gt_pdom_single_hit_get_phase(singlehit);
-    rng = gt_pdom_single_hit_get_range(singlehit);
-    gt_pdom_single_hit_format_alignment(singlehit, GT_ALIWIDTH,
-                                        alignmentstring);
-    gt_pdom_single_hit_get_aaseq(singlehit, aastring);
-
-    rng.start++; rng.end++;  /* GFF3 is 1-based */
-    if (gt_pdom_single_hit_is_chained(singlehit)
-          || ls->pdom_opts->output_all_chains) {
-      gf = gt_feature_node_new(gt_genome_node_get_seqid((GtGenomeNode*)
-                                                        ls->element.mainnode),
-                               gt_ft_protein_match,
-                               rng.start,
-                               rng.end,
-                               strand);
-      gt_genome_node_add_user_data((GtGenomeNode*) gf, "pdom_alignment",
-                                   alignmentstring, (GtFree) gt_str_delete);
-      gt_genome_node_add_user_data((GtGenomeNode*) gf, "pdom_aaseq",
-                                   aastring, (GtFree) gt_str_delete);
-      gt_feature_node_set_source((GtFeatureNode*) gf, ls->ltrdigest_tag);
-      gt_feature_node_set_score((GtFeatureNode*) gf,
-                                gt_pdom_single_hit_get_evalue(singlehit));
-      gt_feature_node_set_phase((GtFeatureNode*) gf, frame);
-      if (gt_pdom_model_get_name(model)) {
-        gt_feature_node_add_attribute((GtFeatureNode*) gf, "name",
-                                      gt_pdom_model_get_name(model));
-      }
-      if (gt_pdom_model_get_acc(model)) {
-        gt_feature_node_add_attribute((GtFeatureNode*) gf, "id",
-                                      gt_pdom_model_get_acc(model));
-      }
-      if (gt_pdom_single_hit_is_chained(singlehit)
-            && ls->pdom_opts->output_all_chains) {
-        GtStr *buffer;
-        unsigned long i;
-        GtArray *chains = gt_pdom_single_hit_get_chains(singlehit);
-        gt_assert(chains != NULL);
-        buffer = gt_str_new();
-        for (i = 0; i < gt_array_size(chains); i++) {
-          gt_str_append_cstr(buffer, gt_pdom_model_get_name(model));
-          gt_str_append_char(buffer, ':');
-          gt_str_append_ulong(buffer,
-                              *(unsigned long*) gt_array_get(chains, i));
-          if (i != gt_array_size(chains) - 1) {
-            gt_str_append_char(buffer, ',');
-          }
-        }
-        gt_feature_node_add_attribute((GtFeatureNode*) gf, "chains",
-                                      gt_str_get(buffer));
-        gt_str_delete(buffer);
-      }
-      gt_feature_node_add_child(ls->element.mainnode, (GtFeatureNode*) gf);
-    }
-  }
-  return 0;
-}
-#endif
-
-static void pbs_attach_results_to_gff3(GtPBSResults *results,
-                                       GtLTRElement *element,
-                                       GtStrand *canonical_strand,
-                                       GtStr *tag)
-{
-  GtRange pbs_range;
-  GtGenomeNode *gf;
-  unsigned long i = 0;
-  char buffer[BUFSIZ];
-  GtPBSHit* hit = gt_pbs_results_get_ranked_hit(results, i++);
-  if (*canonical_strand == GT_STRAND_UNKNOWN)
-    *canonical_strand = gt_pbs_hit_get_strand(hit);
-  else
-  {
-    /* do we have to satisfy a strand constraint?
-     * then find best-scoring PBS on the given canonical strand */
-    while (gt_pbs_hit_get_strand(hit) != *canonical_strand
-             && i < gt_pbs_results_get_number_of_hits(results))
-    {
-      gt_log_log("dropping PBS because of nonconsistent strand: %s\n",
-                 gt_feature_node_get_attribute(element->mainnode, "ID"));
-      hit = gt_pbs_results_get_ranked_hit(results, i++);
-    }
-    /* if there is none, do not report a PBS */
-    if (gt_pbs_hit_get_strand(hit) != *canonical_strand)
-      return;
-  }
-  pbs_range = gt_pbs_hit_get_coords(hit);
-  pbs_range.start++; pbs_range.end++;  /* GFF3 is 1-based */
-  gf = gt_feature_node_new(gt_genome_node_get_seqid((GtGenomeNode*)
-                                                    element->mainnode),
-                           gt_ft_primer_binding_site,
-                           pbs_range.start,
-                           pbs_range.end,
-                           gt_pbs_hit_get_strand(hit));
-  gt_feature_node_set_source((GtFeatureNode*) gf, tag);
-  gt_feature_node_set_score((GtFeatureNode*) gf,
-                            (float) gt_pbs_hit_get_score(hit));
-  if (gt_pbs_hit_get_trna(hit) != NULL) {
-    gt_feature_node_add_attribute((GtFeatureNode*) gf, "trna",
-                                   gt_pbs_hit_get_trna(hit));
-  }
-  gt_feature_node_set_strand(element->mainnode, gt_pbs_hit_get_strand(hit));
-  (void) snprintf(buffer, BUFSIZ-1, "%lu", gt_pbs_hit_get_tstart(hit));
-  gt_feature_node_add_attribute((GtFeatureNode*) gf, "trnaoffset", buffer);
-  (void) snprintf(buffer, BUFSIZ-1, "%lu", gt_pbs_hit_get_offset(hit));
-  gt_feature_node_add_attribute((GtFeatureNode*) gf, "pbsoffset", buffer);
-  (void) snprintf(buffer, BUFSIZ-1, "%lu", gt_pbs_hit_get_edist(hit));
-  gt_feature_node_add_attribute((GtFeatureNode*) gf, "edist", buffer);
-  gt_feature_node_add_child(element->mainnode, (GtFeatureNode*) gf);
-}
-
-static void ppt_attach_results_to_gff3(GtPPTResults *results,
-                                       GtLTRElement *element,
-                                       GtStrand *canonical_strand,
-                                       GtStr *tag)
-{
-  GtRange ppt_range;
-  unsigned long i = 0;
-  GtGenomeNode *gf;
-  GtPPTHit *hit = gt_ppt_results_get_ranked_hit(results, i++),
-           *ubox;
-  if (*canonical_strand == GT_STRAND_UNKNOWN)
-    *canonical_strand = gt_ppt_hit_get_strand(hit);
-  else
-  {
-    /* find best-scoring PPT on the given canonical strand */
-    while (gt_ppt_hit_get_strand(hit) != *canonical_strand
-             && i < gt_ppt_results_get_number_of_hits(results))
-    {
-      gt_log_log("dropping PPT because of nonconsistent strand: %s\n",
-                 gt_feature_node_get_attribute(element->mainnode, "ID"));
-      hit = gt_ppt_results_get_ranked_hit(results, i++);
-    }
-    /* if there is none, do not report a PPT */
-    if (gt_ppt_hit_get_strand(hit) != *canonical_strand)
-      return;
-  }
-  ppt_range = gt_ppt_hit_get_coords(hit);
-  ppt_range.start++; ppt_range.end++;  /* GFF3 is 1-based */
-  gf = gt_feature_node_new(gt_genome_node_get_seqid((GtGenomeNode*)
-                                                    element->mainnode),
-                           gt_ft_RR_tract,
-                           ppt_range.start,
-                           ppt_range.end,
-                           gt_ppt_hit_get_strand(hit));
-  gt_feature_node_set_source((GtFeatureNode*) gf, tag);
-  gt_feature_node_set_strand(element->mainnode, gt_ppt_hit_get_strand(hit));
-  gt_feature_node_add_child(element->mainnode, (GtFeatureNode*) gf);
-  if ((ubox = gt_ppt_hit_get_ubox(hit)) != NULL) {
-    GtRange ubox_range = gt_ppt_hit_get_coords(ubox);
-    ubox_range.start++; ubox_range.end++;
-    gf = gt_feature_node_new(gt_genome_node_get_seqid((GtGenomeNode*)
-                                                      element->mainnode),
-                             gt_ft_U_box,
-                             ubox_range.start,
-                             ubox_range.end,
-                             gt_ppt_hit_get_strand(ubox));
-    gt_feature_node_set_source((GtFeatureNode*) gf, tag);
-    gt_feature_node_set_strand(element->mainnode, gt_ppt_hit_get_strand(ubox));
-    gt_feature_node_add_child(element->mainnode, (GtFeatureNode*) gf);
-  }
-}
-
 static int run_ltrdigest(GtLTRElement *element, char *seq,
-                         GtLTRdigestStream *ls,
+                         GT_UNUSED GtLTRdigestStream *ls,
 #ifdef HAVE_HMMER
                          GtError *err)
 #else
@@ -255,7 +60,7 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
   int had_err = 0;
   char *rev_seq;
   unsigned long seqlen = gt_ltrelement_length(element);
-  GtStrand canonical_strand = GT_STRAND_UNKNOWN;
+  GT_UNUSED GtStrand canonical_strand = GT_STRAND_UNKNOWN;
 
   /* create reverse strand sequence */
   rev_seq = gt_calloc((size_t) seqlen+1, sizeof (char));
@@ -267,7 +72,7 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
 #ifdef HAVE_HMMER
     /* Protein domain finding
        ---------------------- */
-    if (ls->tests_to_run & GT_LTRDIGEST_RUN_PDOM)
+    /*if (ls->tests_to_run & GT_LTRDIGEST_RUN_PDOM)
     {
       GtPdomResults *pdom_results = NULL;
       if (!ls->pdf)
@@ -285,7 +90,6 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
         } else {
           if (pdom_results && !gt_pdom_results_empty(pdom_results))
           {
-            /* determine most likely strand from protein domain results */
             if (gt_double_compare(
                      gt_pdom_results_get_combined_evalue_fwd(pdom_results),
                      gt_pdom_results_get_combined_evalue_rev(pdom_results)) < 0)
@@ -293,7 +97,6 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
             else
               canonical_strand = GT_STRAND_REVERSE;
             gt_feature_node_set_strand(ls->element.mainnode, canonical_strand);
-            /* create nodes for protein match annotations */
             (void) gt_pdom_results_foreach_domain_hit(pdom_results,
                                                       pdom_hit_attach_gff3,
                                                       ls,
@@ -302,12 +105,12 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
           gt_pdom_results_delete(pdom_results);
         }
       }
-    }
+    }*/
 #endif
 
     /* PPT finding
        ----------- */
-    if (ls->tests_to_run & GT_LTRDIGEST_RUN_PPT)
+    /* if (ls->tests_to_run & GT_LTRDIGEST_RUN_PPT)
     {
       GtPPTResults *ppt_results = NULL;
       ppt_results = gt_ppt_find((const char*) seq, (const char*) rev_seq,
@@ -318,11 +121,11 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
                                    ls->ltrdigest_tag);
       }
       gt_ppt_results_delete(ppt_results);
-    }
+    }*/
 
     /* PBS finding
        ----------- */
-    if (ls->tests_to_run & GT_LTRDIGEST_RUN_PBS)
+    /* if (ls->tests_to_run & GT_LTRDIGEST_RUN_PBS)
     {
       GtPBSResults *pbs_results = NULL;
       pbs_results = gt_pbs_find((const char*) seq, (const char*) rev_seq,
@@ -333,7 +136,7 @@ static int run_ltrdigest(GtLTRElement *element, char *seq,
                                    ls->ltrdigest_tag);
        }
        gt_pbs_results_delete(pbs_results);
-    }
+    }*/
   }
   gt_free(rev_seq);
   return had_err;
@@ -422,7 +225,7 @@ static void gt_ltrdigest_stream_free(GtNodeStream *ns)
   gt_str_delete(ls->ltrdigest_tag);
   gt_node_stream_delete(ls->in_stream);
 #ifdef HAVE_HMMER
-  gt_pdom_finder_delete(ls->pdf);
+  /* gt_pdom_finder_delete(ls->pdf); */
 #endif
 }
 
@@ -442,42 +245,16 @@ const GtNodeStreamClass* gt_ltrdigest_stream_class(void)
 GtNodeStream* gt_ltrdigest_stream_new(GtNodeStream *in_stream,
                                       int tests_to_run,
                                       GtRegionMapping *rmap,
-                                      GtPBSOptions *pbs_opts,
-                                      GtPPTOptions *ppt_opts,
-#ifdef HAVE_HMMER
-                                      GtPdomOptions *pdom_opts,
-                                      GtError *err)
-#else
                                       GT_UNUSED GtError *err)
-#endif
 {
   GtNodeStream *ns;
   GtLTRdigestStream *ls;
   ns = gt_node_stream_create(gt_ltrdigest_stream_class(), true);
   ls = gt_ltrdigest_stream_cast(ns);
   ls->in_stream = gt_node_stream_ref(in_stream);
-  ls->ppt_opts = ppt_opts;
-  ls->pbs_opts = pbs_opts;
-#ifdef HAVE_HMMER
-  ls->pdom_opts = pdom_opts;
-  ls->pdf = gt_pdom_finder_new(ls->pdom_opts->hmm_files,
-                               ls->pdom_opts->evalue_cutoff,
-                               ls->pdom_opts->chain_max_gap_length,
-                               ls->pdom_opts->cutoff,
-                               err);
-#endif
   ls->tests_to_run = tests_to_run;
   ls->rmap = rmap;
   ls->ltrdigest_tag = gt_str_new_cstr(GT_LTRDIGEST_TAG);
   ls->lv = (GtLTRVisitor*) gt_ltr_visitor_new(&ls->element);
-#ifdef HAVE_HMMER
-  if (!ls->pdf)
-  {
-    /* An error occurred, do not return a stream.
-       We assume that the error message has been set. */
-    gt_node_stream_delete(ns);
-    return NULL;
-  } else
-#endif
   return ns;
 }
