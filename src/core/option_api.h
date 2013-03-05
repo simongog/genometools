@@ -19,6 +19,7 @@
 #define OPTION_API_H
 
 #include <stdbool.h>
+#include "core/file_api.h"
 #include "core/range_api.h"
 #include "core/str_api.h"
 #include "core/str_array_api.h"
@@ -69,7 +70,7 @@ void            gt_option_parser_add_option(GtOptionParser *option_parser,
    <option_parser>, and <NULL> if no such option exists. */
 GtOption*       gt_option_parser_get_option(GtOptionParser *option_parser,
                                             const char *option_string);
-/* Refer to manual at the end of <-help> output of <opion_parser>. */
+/* Refer to manual at the end of <-help> output of <option_parser>. */
 void            gt_option_parser_refer_to_manual(GtOptionParser *option_parser);
 /* Set <comment_func> in <option_parser> (<data> is passed along). */
 void            gt_option_parser_set_comment_func(GtOptionParser *option_parser,
@@ -119,6 +120,11 @@ GtOPrval        gt_option_parser_parse(GtOptionParser *option_parser,
                                        int argc, const char **argv,
                                        GtShowVersionFunc version_func,
                                        GtError *err);
+/* Output a man page for the tool using <op> in Asciidoc format to <outdir>.
+   <intoolname> is a string contained the tool call. */
+int             gt_option_parser_show_man(GtOptionParser *op,
+                                          const char *intoolname,
+                                          const char *outdir, GtError *err);
 /* Delete <option_parser>. */
 void            gt_option_parser_delete(GtOptionParser *option_parser);
 

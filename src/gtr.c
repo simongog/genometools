@@ -58,7 +58,7 @@ struct GtR {
       *testspacepeak;
   GtToolbox *tools;
   GtHashmap *unit_tests;
-  GtStr *test_only;
+  GtStr *test_only, *manoutdir;
   lua_State *L;
 #ifndef WITHOUT_CAIRO
   GtStyle *style;
@@ -77,6 +77,7 @@ GtR* gtr_new(GtError *err)
   gtr->debugfp = gt_str_new();
   gtr->testspacepeak = gt_str_new();
   gtr->test_only = gt_str_new();
+  gtr->manoutdir = gt_str_new();
   gtr->L = luaL_newstate();
   if (!gtr->L) {
     gt_error_set(err, "out of memory (cannot create new lua state)");
@@ -140,7 +141,7 @@ GtOPrval gtr_parse(GtR *gtr, int *parsed_args, int argc, const char **argv,
                    GtError *err)
 {
   GtOptionParser *op;
-  GtOption *o, *only_option, *debug_option, *debugfp_option;
+  GtOption *o, *only_option, *debug_option, *debugfp_option, *createman_option;
   GtOPrval oprval;
 
   gt_error_check(err);
@@ -195,6 +196,11 @@ GtOPrval gtr_parse(GtR *gtr, int *parsed_args, int argc, const char **argv,
                              "file", gtr->testspacepeak);
   gt_option_is_development_option(o);
   gt_option_parser_add_option(op, o);
+  createman_option = gt_option_new_string("createman",
+                                          "create man page sources",
+                                          gtr->manoutdir, "");
+  gt_option_is_development_option(createman_option);
+  gt_option_parser_add_option(op, createman_option);
   oprval = gt_option_parser_parse(op, parsed_args, argc, argv, gt_versionfunc,
                                   err);
   gt_option_parser_delete(op);
@@ -299,6 +305,9 @@ int gtr_run(GtR *gtr, int argc, const char **argv, GtError *err)
     return check64bit();
   if (gtr->test)
     return run_tests(gtr, err);
+  if (gt_str_length(gtr->manoutdir) > 0)
+    return gt_toolbox_show_man(gtr->tools, gt_error_get_progname(err),
+                               gt_str_get(gtr->manoutdir), err);
   if (gt_str_length(gtr->testspacepeak)) {
     mem = gt_malloc(1 << 26); /* alloc 64 MB */;
     map = gt_fa_xmmap_read(gt_str_get(gtr->testspacepeak), NULL);
@@ -364,6 +373,7 @@ void gtr_delete(GtR *gtr)
   gt_fa_fclose(gtr->logfp);
   gt_str_delete(gtr->testspacepeak);
   gt_str_delete(gtr->debugfp);
+  gt_str_delete(gtr->manoutdir);
   gt_str_delete(gtr->test_only);
   gt_toolbox_delete(gtr->tools);
   gt_hashmap_delete(gtr->unit_tests);

@@ -16,10 +16,13 @@
 */
 
 #include <ctype.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include "core/cstr_api.h"
 #include "core/fa.h"
+#include "core/fileutils.h"
+#include "core/file.h"
 #include "core/hashmap_api.h"
 #include "core/grep_api.h"
 #include "core/ma.h"
@@ -28,6 +31,7 @@
 #include "core/parseutils.h"
 #include "core/undef_api.h"
 #include "core/xansi_api.h"
+#include "core/xposix.h"
 
 typedef enum {
   OPTION_BOOL,
@@ -418,6 +422,172 @@ static int show_help(GtOptionParser *op, GtOptionType optiontype, GtError *err)
     printf("\nReport bugs to %s.\n",
            op->mail_address ? op->mail_address : GT_MAIL_ADDRESS);
   }
+  return had_err;
+}
+
+static void print_asciidoc_header(const char *hdr, GtFile *outfile) {
+  unsigned long i;
+  gt_file_xprintf(outfile, "%s\n", hdr);
+  for (i = 0; i < strlen(hdr); i++)
+    gt_file_xfputc('-', outfile);
+  gt_file_xprintf(outfile, "\n\n");
+}
+
+int gt_option_parser_show_man(GtOptionParser *op, const char *intoolname,
+                              const char *outdir, GtError *err)
+{
+  unsigned long i;
+  GtOption *option;
+  GtStr *default_string, *pathbuf;
+  GtFile *outfile;
+  const char *toolname;
+  int had_err = 0;
+  gt_assert(op);
+  gt_error_check(err);
+
+  toolname = intoolname + gt_cstr_length_up_to_char(intoolname, ' ') + 1;
+
+  pathbuf = gt_str_new();
+  gt_str_append_cstr(pathbuf, outdir);
+  if (!gt_file_exists(gt_str_get(pathbuf)))
+    gt_xmkdir(gt_str_get(pathbuf));
+  gt_str_append_char(pathbuf, '/');
+  gt_str_append_cstr(pathbuf, toolname);
+  gt_str_append_cstr(pathbuf, ".mansrc");
+  outfile = gt_file_new(gt_str_get(pathbuf), "w+", err);
+  gt_assert(outfile); /* XXX */
+
+  /* title and section */
+  gt_file_xprintf(outfile, "GT-");
+  for (i = 0; i < strlen(toolname); i++)
+    gt_file_xfputc(toupper(toolname[i]), outfile);
+  gt_file_xprintf(outfile, "(1)\n");
+  for (i = 0; i < strlen(toolname) + 6; i++)
+    gt_file_xfputc('=', outfile);
+  gt_file_xfputc('\n', outfile);
+  gt_file_xfputc('\n', outfile);
+
+  /* name */
+  print_asciidoc_header("NAME", outfile);
+  gt_file_xprintf(outfile, "gt-%s - %s\n\n", toolname, op->one_liner);
+
+  /* synopsis */
+  print_asciidoc_header("SYNOPSIS", outfile);
+  gt_file_xprintf(outfile, "*gt %s* %s\n\n", toolname, op->synopsis);
+
+  /* description */
+  if (gt_array_size(op->options)) {
+    print_asciidoc_header("DESCRIPTION", outfile);
+    default_string = gt_str_new();
+    for (i = 0; i < gt_array_size(op->options); i++) {
+      option = *(GtOption**) gt_array_get(op->options, i);
+      /* skip dev options */
+      if (option->is_development_option) continue;
+      gt_file_xprintf(outfile, "*-%s* ", gt_str_get(option->option_str));
+      if (option->option_type == OPTION_BOOL) {
+        gt_file_xprintf(outfile, "['yes|no']");
+        gt_str_append_cstr(default_string,
+                              option->default_value.b ? "yes" : "no");
+      }
+      else if (option->option_type == OPTION_CHOICE) {
+        gt_file_xprintf(outfile, "['...']");
+        if (!option->default_value.s || !strlen(option->default_value.s))
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_cstr(default_string, option->default_value.s);
+      }
+      else if (option->option_type == OPTION_DOUBLE) {
+        gt_file_xprintf(outfile, "['value']");
+        if (option->default_value.d == GT_UNDEF_DOUBLE)
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_double(default_string, option->default_value.d, 6);
+      }
+      else if (option->option_type == OPTION_INT) {
+        gt_file_xprintf(outfile, "['value']");
+        if (option->default_value.i == GT_UNDEF_INT)
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_int(default_string, option->default_value.i);
+      }
+      else if (option->option_type == OPTION_UINT) {
+        gt_file_xprintf(outfile, "['value']");
+        if (option->default_value.ui == GT_UNDEF_UINT)
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_uint(default_string, option->default_value.ui);
+      }
+      else if (option->option_type == OPTION_LONG) {
+        gt_file_xprintf(outfile, "['value']");
+      }
+      else if (option->option_type == OPTION_ULONG) {
+        gt_file_xprintf(outfile, "['value']");
+        if (option->default_value.ul == GT_UNDEF_ULONG)
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_ulong(default_string, option->default_value.ul);
+      }
+      else if (option->option_type == OPTION_RANGE) {
+        gt_file_xprintf(outfile, "['start' 'end']");
+        if (option->default_value.r.start == GT_UNDEF_ULONG)
+          gt_str_append_cstr(default_string, "undefined");
+        else {
+          gt_str_append_char(default_string, '[');
+          gt_str_append_ulong(default_string, option->default_value.r.start);
+          gt_str_append_cstr(default_string, "..");
+          gt_str_append_ulong(default_string, option->default_value.r.end);
+          gt_str_append_char(default_string, ']');
+        }
+      }
+      else if (option->option_type == OPTION_STRING) {
+        gt_file_xprintf(outfile, "['string']");
+        if (!option->default_value.s || !strlen(option->default_value.s))
+          gt_str_append_cstr(default_string, "undefined");
+        else
+          gt_str_append_cstr(default_string, option->default_value.s);
+      }
+      gt_file_xprintf(outfile, "::\n%s",gt_str_get(option->description));
+      if (gt_str_length(default_string) > 0)
+        gt_file_xprintf(outfile, " (default: %s)", gt_str_get(default_string));
+      gt_file_xprintf(outfile, "\n\n");
+      gt_str_reset(default_string);
+    }
+    gt_str_delete(default_string);
+  }
+  gt_file_delete(outfile);
+
+  if (op->comment_func) {
+    int bak, new;
+    /* Lua docu scripts print by themselves, so temporarily redirect stdout to
+       our file. Not beautiful, but it works as long as the outfile is not
+       compressed. */
+    fflush(stdout);
+    bak = dup(1);
+    new = open(gt_str_get(pathbuf), O_WRONLY | O_APPEND);
+    dup2(new, 1);
+    close(new);
+    had_err = op->comment_func(intoolname, op->comment_func_data, err);
+    fflush(stdout);
+    dup2(bak, 1);
+    close(bak);
+  }
+
+  /* reopen our output file */
+  outfile = gt_file_new(gt_str_get(pathbuf), "a+", err);
+  gt_file_xprintf(outfile, "\n");
+  if (!had_err) {
+    if (op->refer_to_manual) {
+      print_asciidoc_header("ADDITIONAL INFORMATION", outfile);
+      gt_file_xprintf(outfile, "For detailed information, please refer to "
+                               "the manual of %s.\n\n", toolname +
+                               gt_cstr_length_up_to_char(toolname, ' '));
+    }
+    print_asciidoc_header("REPORTING BUGS", outfile);
+    gt_file_xprintf(outfile, "Report bugs to %s.\n",
+                    op->mail_address ? op->mail_address : GT_MAIL_ADDRESS);
+  }
+  gt_file_delete(outfile);
+  gt_str_delete(pathbuf);
   return had_err;
 }
 

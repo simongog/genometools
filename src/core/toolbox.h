@@ -31,4 +31,7 @@ void       gt_toolbox_add(GtToolbox*, const char *toolname, GtToolfunc);
 /* deprecated */
 GtToolfunc gt_toolbox_get(const GtToolbox*, const char *toolname);
 
+int        gt_toolbox_show_man(const GtToolbox*, const char *intoolname,
+                               const char *outdir, GtError *err);
+
 #endif

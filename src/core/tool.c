@@ -25,6 +25,8 @@ struct GtTool {
   GtToolOptionParserNew tool_option_parser_new;
   GtToolArgumentsCheck tool_arguments_check;
   GtToolRunner tool_runner;
+  GtOptionParser *op;
+  void *arguments;
 };
 
 GtTool* gt_tool_new(GtToolArgumentsNew tool_arguments_new,
@@ -44,27 +46,27 @@ GtTool* gt_tool_new(GtToolArgumentsNew tool_arguments_new,
   tool->tool_option_parser_new = tool_option_parser_new;
   tool->tool_arguments_check = tool_arguments_check;
   tool->tool_runner = tool_runner;
+  tool->arguments = NULL;
+  tool->op = NULL;
+  /* create tool arguments object */
+  if (tool_arguments_new)
+    tool->arguments = tool_arguments_new();
+  /* create option parser object */
+  if (tool_option_parser_new)
+    tool->op = tool_option_parser_new(tool->arguments);
   return tool;
 }
 
 int gt_tool_run(GtTool *tool, int argc, const char **argv, GtError *err)
 {
-  void *tool_arguments = NULL;
-  GtOptionParser *op;
   GtOPrval oprval;
   int parsed_args, had_err = 0;
   gt_error_check(err);
-  gt_assert(tool);
-
-  /* create tool arguments object */
-  if (tool->tool_arguments_new)
-    tool_arguments = tool->tool_arguments_new();
+  gt_assert(tool && tool->op);
 
   /* parse options */
-  op = tool->tool_option_parser_new(tool_arguments);
-  oprval = gt_option_parser_parse(op, &parsed_args, argc, argv, gt_versionfunc,
-                                  err);
-  gt_option_parser_delete(op);
+  oprval = gt_option_parser_parse(tool->op, &parsed_args, argc, argv,
+                                  gt_versionfunc, err);
   switch (oprval) {
     case GT_OPTION_PARSER_OK:
       break;
@@ -72,24 +74,18 @@ int gt_tool_run(GtTool *tool, int argc, const char **argv, GtError *err)
       had_err = -1;
       break;
     case GT_OPTION_PARSER_REQUESTS_EXIT:
-      if (tool_arguments)
-        tool->tool_arguments_delete(tool_arguments);
       return 0;
   }
 
   /* check tool arguments */
   if (!had_err && tool->tool_arguments_check) {
-    had_err = tool->tool_arguments_check(argc - parsed_args , tool_arguments,
+    had_err = tool->tool_arguments_check(argc - parsed_args , tool->arguments,
                                          err);
   }
 
   /* run tool */
   if (!had_err)
-    had_err = tool->tool_runner(argc, argv, parsed_args, tool_arguments, err);
-
-  /* delete tool argument object */
-  if (tool_arguments)
-    tool->tool_arguments_delete(tool_arguments);
+    had_err = tool->tool_runner(argc, argv, parsed_args, tool->arguments, err);
 
   /* return */
   if (had_err)
@@ -97,8 +93,19 @@ int gt_tool_run(GtTool *tool, int argc, const char **argv, GtError *err)
   return 0;
 }
 
+int gt_tool_show_man(GtTool *tool, const char *toolname, const char *outdir,
+                     GtError *err)
+{
+  gt_assert(tool && tool->op);
+  return gt_option_parser_show_man(tool->op, toolname, outdir, err);
+}
+
 void  gt_tool_delete(GtTool *tool)
 {
   if (!tool) return;
+  gt_option_parser_delete(tool->op);
+  /* delete tool argument object */
+  if (tool->arguments && tool->tool_arguments_delete)
+    tool->tool_arguments_delete(tool->arguments);
   gt_free(tool);
 }

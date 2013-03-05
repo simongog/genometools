@@ -17,6 +17,7 @@
 
 #include <string.h>
 #include "core/hashmap.h"
+#include "core/log.h"
 #include "core/ma.h"
 #include "core/toolbox.h"
 #include "core/unused_api.h"
@@ -133,6 +134,45 @@ int gt_toolbox_show(GT_UNUSED const char *progname, void *toolbox,
                                             NULL);
   gt_assert(!had_err); /* show_tool_name() is sane */
   return 0;
+}
+
+typedef struct {
+  const char *intoolname,
+             *outdir;
+} GtToolboxShowInfo;
+
+static int show_tool_man(void *key, void *value, GT_UNUSED void *data,
+                          GT_UNUSED GtError *err)
+{
+  GtToolinfo *toolinfo = value;
+  int had_err = 0;
+  GtToolboxShowInfo *i = (GtToolboxShowInfo*) data;
+  GtStr *newtoolname = NULL;
+  gt_error_check(err);
+  gt_assert(key && value);
+
+  if (!toolinfo->tool) return 0;
+  newtoolname = gt_str_new_cstr(i->intoolname);
+  gt_str_append_char(newtoolname, ' ');
+  gt_str_append_cstr(newtoolname, (const char*) key);
+  gt_log_log("creating manpage for tool %s\n", (const char*) key);
+  had_err = gt_tool_show_man(toolinfo->tool, gt_str_get(newtoolname), i->outdir,
+                             err);
+  gt_str_delete(newtoolname);
+  return had_err;
+}
+
+int gt_toolbox_show_man(const GtToolbox *tb, const char *intoolname,
+                        const char *outdir, GtError *err)
+{
+  GtToolboxShowInfo info;
+  int had_err = 0;
+  gt_assert(tb && outdir);
+  info.intoolname = intoolname;
+  info.outdir = outdir;
+  had_err = gt_hashmap_foreach_in_key_order(tb->tools, show_tool_man, &info,
+                                            err);
+  return had_err;
 }
 
 void gt_toolbox_delete(GtToolbox *tb)

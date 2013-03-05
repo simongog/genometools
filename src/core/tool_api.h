@@ -19,6 +19,7 @@
 #define TOOL_API_H
 
 #include "core/error_api.h"
+#include "core/file_api.h"
 #include "core/option_api.h"
 
 /* The <GtTool> class encapsulates a single __GenomeTools__ tool. Can also be
@@ -81,6 +82,11 @@ GtTool* gt_tool_new(GtToolArgumentsNew tool_arguments_new,
    6. Delete the tool arguments object, if one was created.
       Returns -1 and sets <err> on error, returns 0 otherwise. */
 int     gt_tool_run(GtTool*, int argc, const char **argv, GtError *err);
+
+/* Outputs the man page for <tool> in Asciidoc format to the
+   directory <outdir>. */
+int     gt_tool_show_man(GtTool *tool, const char *toolname, const char *outdir,
+                         GtError *err);
 
 /* Delete the given <tool>. */
 void    gt_tool_delete(GtTool*);
