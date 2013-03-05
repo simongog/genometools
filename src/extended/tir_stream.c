@@ -1,8 +1,8 @@
 /*
-  Copyright (c) 2012 Manuela Beckert <9beckert@informatik.uni-hamburg.de>
-  Copyright (c) 2012 Dorle Osterode <9osterod@informatik.uni-hamburg.de>
-  Copyright (c) 2012 Sascha Steinbiss <steinbiss@zbh.uni-hamburg.de>
-  Copyright (c) 2012 Center for Bioinformatics, University of Hamburg
+  Copyright (c) 2012      Manuela Beckert <9beckert@informatik.uni-hamburg.de>
+  Copyright (c) 2012      Dorle Osterode <9osterod@informatik.uni-hamburg.de>
+  Copyright (c) 2012-2013 Sascha Steinbiss <steinbiss@zbh.uni-hamburg.de>
+  Copyright (c) 2012-2013 Center for Bioinformatics, University of Hamburg
 
   Permission to use, copy, modify, and distribute this software for any
   purpose with or without fee is hereby granted, provided that the above
@@ -539,7 +539,12 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
   Seed *seedptr;
   TIRPair *pair;
   int had_err = 0;
+  GtXdropbest xdropbest_left, xdropbest_right;
+  GtSeqabstract *sa_useq = gt_seqabstract_new_empty(),
+                *sa_vseq = gt_seqabstract_new_empty();
   gt_error_check(err);
+
+  xdropresources = gt_xdrop_resources_new(&tir_stream->arbit_scores);
 
   /* Iterating over seeds */
   for (seedcounter = 0; seedcounter < tir_stream->seedinfo.seed.nextfreeSeed;
@@ -555,14 +560,14 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     gt_encseq_extract_decoded(encseq,(char*)query, seedptr->pos2,
                               seedptr->pos2+seedptr->len);
 
-    gt_evalxdroparbitscoresleft(&xdropbest_left,
-                               encseq,
-                               encseq,
-                               seedptr->pos1,
-                               seedptr->pos2,
-                               (int) seedptr->pos1,
-                               (int) seedptr->pos2,
-                               (Xdropscore)tir_stream->xdrop_belowscore);
+    gt_evalxdroparbitscoresextend(false,
+                                  &xdropbest_left,
+                                  xdropresources,
+                                  sa_useq,
+                                  sa_vseq,
+                                  seedptr->pos1,
+                                  seedptr->pos1 + seedptr->offset,
+                                  (GtXdropscore) tir_stream->xdrop_belowscore);
     GT_FREEARRAY (&fronts, Myfrontvalue);
 
     GT_INITARRAY (&fronts, Myfrontvalue);
