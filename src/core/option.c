@@ -446,6 +446,7 @@ int gt_option_parser_show_man(GtOptionParser *op, const char *intoolname,
   gt_error_check(err);
 
   toolname = intoolname + gt_cstr_length_up_to_char(intoolname, ' ') + 1;
+  gt_assert(strlen(toolname) > 0);
 
   pathbuf = gt_str_new();
   gt_str_append_cstr(pathbuf, outdir);
