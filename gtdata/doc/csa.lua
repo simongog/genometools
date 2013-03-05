@@ -1,7 +1,7 @@
 print ([[
 
-Example:
---------
+EXAMPLE
+-------
 
 Let's assume we have a GFF3 file 'csa_example_spliced_alignments.gff3'
 containing the following four overlapping spliced alignments (represented as
