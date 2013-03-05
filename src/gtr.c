@@ -157,7 +157,6 @@ GtOPrval gtr_parse(GtR *gtr, int *parsed_args, int argc, const char **argv,
   gt_option_parser_add_option(op, o);
   o = gt_option_new_uint_min("j", "set number of parallel threads used at once",
                              &gt_jobs, 1, 1);
-  gt_option_is_development_option(o);
   gt_option_parser_add_option(op, o);
   o = gt_option_new_bool("test", "perform unit tests and exit", &gtr->test,
                          false);
