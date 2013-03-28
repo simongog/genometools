@@ -520,6 +520,8 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
                 *sa_vseq = gt_seqabstract_new_empty();
   gt_error_check(err);
 
+  printf("searching for TIRs\n");
+
   xdropresources = gt_xdrop_resources_new(&tir_stream->arbit_scores);
 
   /* Iterating over seeds */
@@ -675,7 +677,7 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
   tir_stream = gt_node_stream_cast(gt_tir_stream_class(), ns);
 
   /* generate and check seeds */
-/*   if (tir_stream->state == GT_TIR_STREAM_STATE_START) { */
+   if (tir_stream->state == GT_TIR_STREAM_STATE_START) {
     if (!had_err && gt_enumeratemaxpairs(tir_stream->ssar,
                       tir_stream->encseq,
                       gt_readmodeSequentialsuffixarrayreader(tir_stream->ssar),
