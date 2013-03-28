@@ -144,9 +144,6 @@ static GtOptionParser* gt_tir_option_parser_new(void *tool_arguments)
                                                  10000UL, 1UL, GT_UNDEF_ULONG);
   gt_option_parser_add_option(op, optionmaxdisttir);
 
-  /* -mat */
-  arguments->arbit_scores.gcd  = 1;      /* set only for initialization,
-                                            do not change! */
   optionmat = gt_option_new_int_min("mat",
                                     "specify matchscore for "
                                     "extension-alignment",

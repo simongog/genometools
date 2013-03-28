@@ -39,10 +39,11 @@
 #include "match/querymatch.h"
 #include "match/xdrop.h"
 #include "extended/tir_stream.h"
+
 typedef struct
 {
   unsigned long pos1;         /* position of first seed */
-  unsigned long pos2;         /* position of seconf seed (other contig) */
+  unsigned long pos2;         /* position of second seed (other contig) */
   unsigned long offset;       /* distance between them related to the actual
                                  sequence (not mirrored) */
   unsigned long len;          /* length of the seed  */
@@ -57,6 +58,9 @@ typedef struct
   unsigned long min_tir_length;
   unsigned long max_tir_distance;
   unsigned long min_tir_distance;
+  unsigned long num_of_contigs;
+  unsigned long midpos;
+  unsigned long totallength;
 } SeedInfo;
 
 typedef struct
@@ -123,93 +127,63 @@ static int gt_tir_store_seeds(void *info, const GtEncseq *encseq,
                               unsigned long len, unsigned long pos1,
                               unsigned long pos2, GtError *err)
 {
-  unsigned long offset = 0;
-  unsigned long contignumber = 0,
-                seqnum1,
+  unsigned long seqnum1,
                 seqnum2;
-  unsigned long num_of_contigs;
-  unsigned long contig_length;
-  unsigned long offset_pos1;
-  unsigned long offset_pos2;
-  unsigned long startpos_contig1;
-  unsigned long startpos_contig2;
-  unsigned long tmp = 0;
-  bool samecontig_and_diffstrands = false;
-  bool direction = false;
-  bool tir_distance = true;
+  Seed *nextfreeseedpointer;
+  unsigned long distance;
   SeedInfo *seeds = (SeedInfo *) info;
   gt_error_check(err);
 
+  /* ensure order of seeds */
   if (pos1 > pos2) {
+    unsigned long tmp = 0;
     tmp = pos1;
     pos1 = pos2;
     pos2 = tmp;
   }
 
-  /* same contig and different strands */
-  num_of_contigs = gt_encseq_num_of_sequences(encseq);
+  /* match mirrored vs. unmirrored */
+  if (pos1 > seeds->midpos || pos2 < seeds->midpos)
+    return 0;
 
+  /* check distance constraints */
+  distance = (GT_REVERSEPOS(seeds->totallength, pos2) - len + 1) - pos1;
+  if (distance < seeds->min_tir_distance || distance > seeds->max_tir_distance
+        || len > seeds->max_tir_length || len < seeds->min_tir_length)
+    return 0;
+
+  /* check whether matches are on the `same' contig */
   seqnum1 = gt_encseq_seqnum(encseq, pos1);
   seqnum2 = gt_encseq_seqnum(encseq, pos2);
+  if (seqnum2 != seeds->num_of_contigs - seqnum1 - 1)
+    return 0;
 
-  if (seqnum2 == num_of_contigs - seqnum1 -1) {
-    contignumber = seqnum1;
-    samecontig_and_diffstrands = true;
-  }
+  /*char seq1[BUFSIZ], seq2[BUFSIZ];
 
-  /* offset is the distance between the first position of the seed on the
-  5'3'-strand and the first position of the seed on the 3'5'-strand */
-
-  contig_length = gt_encseq_seqlength(encseq, seqnum1);
-  startpos_contig1 = gt_encseq_seqstartpos(encseq, seqnum1);
-  startpos_contig2 = gt_encseq_seqstartpos(encseq, seqnum2);
-
-  offset_pos1 = pos1 - startpos_contig1;
-  offset_pos2 = pos2 - startpos_contig2;
-  offset_pos2 = offset_pos2 + len -1;
-  offset_pos2 = contig_length - offset_pos2 -1;
-
-  if (offset_pos1 < offset_pos2) {
-    offset = offset_pos2 - offset_pos1;
-    direction = true;
-  }
-
-  if (direction && samecontig_and_diffstrands) {
-    if (pos1 - startpos_contig1 > seeds->max_tir_length - len) {
-      if (((pos1 + offset) - (pos1 - seeds->max_tir_length + len))
-            < seeds->min_tir_distance) {
-        tir_distance = false;
-      }
-    } else if (pos1 - startpos_contig1 <= seeds->max_tir_length - len) {
-      if (pos1 + offset - startpos_contig1 < seeds->min_tir_distance) {
-        tir_distance = false;
-      }
-    } else if ((pos1 + offset - seeds->max_tir_length + len) > pos1) {
-      if ((pos1 + offset - seeds->max_tir_length + len) - pos1
-            > seeds->max_tir_distance) {
-        tir_distance = false;
-      }
-    }
-  }
-
-  /* like this, cause we want to have other constraints later */
-  if (samecontig_and_diffstrands && direction && tir_distance) {
-    Seed *nextfreeseedpointer;
-
-    GT_GETNEXTFREEINARRAY(nextfreeseedpointer, &seeds->seed, Seed, 10);
-    nextfreeseedpointer->pos1 = pos1;
-    nextfreeseedpointer->pos2 = pos2;
-    nextfreeseedpointer->offset = offset;
-    nextfreeseedpointer->len = len;
-    nextfreeseedpointer->contignumber = contignumber;
-  }
-
+  printf("ctg %lu | pos1 %lu | pos2 %lu | offset %lu | len %lu | midpos %lu\n",
+         seqnum1, pos1, GT_REVERSEPOS(seeds->totallength, pos2) - len + 1,
+         distance, len, seeds->midpos);
+  gt_encseq_extract_decoded(encseq, seq1, pos1, pos1+len);
+  seq1[len] = '\0';
+  gt_encseq_extract_decoded(encseq, seq2,
+                            GT_REVERSEPOS(seeds->totallength, pos2) - len + 1,
+                            GT_REVERSEPOS(seeds->totallength, pos2) );
+  seq2[len] = '\0';
+  printf("%s  %s\n",seq1, seq2); */
+  GT_GETNEXTFREEINARRAY(nextfreeseedpointer, &seeds->seed, Seed, 64);
+  nextfreeseedpointer->pos1 = pos1;
+  nextfreeseedpointer->pos2 = pos2;
+  nextfreeseedpointer->offset = distance;
+  nextfreeseedpointer->len = len;
+  nextfreeseedpointer->contignumber = seqnum1;
   return 0;
 }
 
 /* this function is a call back function to store all TSDs found */
 static int gt_tir_store_TSDs(void *info, GT_UNUSED const GtEncseq *encseq,
-                             const Querymatch *querymatch,
+                             const GtQuerymatch *querymatch,
+                             GT_UNUSED const GtUchar *query,
+                             GT_UNUSED unsigned long query_totallength,
                              GT_UNUSED GtError *err)
 {
   Seed *nextfree;
@@ -221,7 +195,7 @@ static int gt_tir_store_TSDs(void *info, GT_UNUSED const GtEncseq *encseq,
   nextfree->offset = TSDs->right_start_pos
                        + gt_querymatch_querystart(querymatch)
                        - (nextfree->pos1);
-  nextfree->len = gt_querymatch_len(querymatch);
+  nextfree->len = gt_querymatch_querylen(querymatch);
 
   return 0;
 }
@@ -535,7 +509,9 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
                 distance = 0;
   GtUchar *left_tir_char = NULL,        /* next character to align */
           *right_tir_char = NULL;
-  unsigned long edist = 0;              /* edit distance */
+  unsigned long edist = 0,
+                alilen,
+                seqstart, seqend;
   Seed *seedptr;
   TIRPair *pair;
   int had_err = 0;
@@ -552,26 +528,40 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     GtUchar *dbseq, *query;
 
     seedptr = &(tir_stream->seedinfo.seed.spaceSeed[seedcounter]);
-//    printf("seed: %lu/%lu\n", seedptr->pos1, seedptr->pos2);
-    dbseq = gt_calloc(seedptr->len+1, sizeof (GtUchar));
-    query = gt_calloc(seedptr->len+1, sizeof (GtUchar));
-    gt_encseq_extract_decoded(encseq,(char*)dbseq, seedptr->pos1,
-                              seedptr->pos1+seedptr->len);
-    gt_encseq_extract_decoded(encseq,(char*)query, seedptr->pos2,
-                              seedptr->pos2+seedptr->len);
+    gt_assert(tir_stream->seedinfo.max_tir_length >= seedptr->len);
+    alilen = tir_stream->seedinfo.max_tir_length - seedptr->len;
+    seqstart = gt_encseq_seqstartpos(tir_stream->encseq, seedptr->contignumber);
+    seqend = seqstart
+                + gt_encseq_seqlength(tir_stream->encseq,seedptr->contignumber);
 
-    gt_evalxdroparbitscoresextend(false,
-                                  &xdropbest_left,
-                                  xdropresources,
-                                  sa_useq,
-                                  sa_vseq,
-                                  seedptr->pos1,
-                                  seedptr->pos1 + seedptr->offset,
-                                  (GtXdropscore) tir_stream->xdrop_belowscore);
-    GT_FREEARRAY (&fronts, Myfrontvalue);
-
-    GT_INITARRAY (&fronts, Myfrontvalue);
-    total_length = gt_encseq_total_length(encseq);
+    /* left (reverse) xdrop */
+    if (seedptr->pos1 > 0)
+    {
+      if (alilen <= seedptr->pos1)
+      {
+        gt_seqabstract_reinit_encseq(sa_useq, encseq, alilen, 0);
+        gt_seqabstract_reinit_encseq(sa_vseq, encseq, alilen, 0);
+      } else
+      {
+        unsigned long maxleft = seedptr->pos1 - seqstart;
+        gt_seqabstract_reinit_encseq(sa_useq, encseq, maxleft, 0);
+        gt_seqabstract_reinit_encseq(sa_vseq, encseq, maxleft, 0);
+      }
+      gt_evalxdroparbitscoresextend(false,
+                                    &xdropbest_left,
+                                    xdropresources,
+                                    sa_useq,
+                                    sa_vseq,
+                                    seedptr->pos1,
+                                    seedptr->pos2 + seedptr->offset,
+                                   (GtXdropscore) tir_stream->xdrop_belowscore);
+    } else
+    {
+      xdropbest_left.ivalue = 0;
+      xdropbest_left.jvalue = 0;
+      xdropbest_left.score = 0;
+    }
+/*
     gt_evalxdroparbitscoresright(&tir_stream->arbit_scores,
                                 &xdropbest_right,
                                 &fronts,
@@ -584,10 +574,44 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
                                 (int) (total_length -
                                                 (seedptr->pos2 + seedptr->len)),
                                 (Xdropscore)tir_stream->xdrop_belowscore);
-    GT_FREEARRAY (&fronts, Myfrontvalue);
+    GT_FREEARRAY (&fronts, Myfrontvalue); */
+
+    total_length = gt_encseq_total_length(encseq);
+    if (seedptr->pos1 + seedptr->len > 0)
+    {
+      gt_assert(seqend >= seedptr->pos1 + seedptr->offset + seedptr->len);
+      if (alilen <= seqend - (seedptr->pos1 + seedptr->offset +
+                              seedptr->len))
+      {
+        gt_seqabstract_reinit_encseq(sa_useq,tir_stream->encseq,alilen,0);
+        gt_seqabstract_reinit_encseq(sa_vseq,tir_stream->encseq,alilen,0);
+      } else
+      {
+        gt_seqabstract_reinit_encseq(sa_useq,tir_stream->encseq,
+                                     seqend - (seedptr->pos1+seedptr->len),
+                                     0);
+        gt_seqabstract_reinit_encseq(sa_vseq,tir_stream->encseq,
+                                     seqend - (seedptr->pos1 +
+                                               seedptr->offset +
+                                               seedptr->len),0);
+      }
+      gt_evalxdroparbitscoresextend(true,
+                                    &xdropbest_right,
+                                    xdropresources,
+                                    sa_useq,
+                                    sa_vseq,
+                                    seedptr->pos1 + seedptr->len,
+                                    seedptr->pos1 + seedptr->offset +
+                                    seedptr->len,
+                                   (GtXdropscore) tir_stream->xdrop_belowscore);
+    } else
+    {
+      xdropbest_right.ivalue = 0;
+      xdropbest_right.jvalue = 0;
+      xdropbest_right.score = 0;
+    }
 
     GT_GETNEXTFREEINARRAY(pair, tir_pairs, TIRPair, 5);
-
     /* Store positions for the found TIR */
     pair->contignumber = seedptr->contignumber;
     pair->left_tir_start = seedptr->pos1 - xdropbest_left.ivalue;
@@ -606,110 +630,37 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     pair->right_tir_end = GT_REVERSEPOS(total_length,right_tir_end);
     pair->similarity = 0.0;
     pair->skip = false;
+  }
 
-    had_err = gt_tir_search_for_TSDs(tir_stream, pair, encseq, err);
+  /* initialize array for removing overlaps */
+  GT_INITARRAY(&new, TIRPair);
 
-    if (!had_err) {
-      /* TODO hier möchte überlegt werden, wo dieser fehler abgefangen werden
-         möchte */
-      if (pair->left_tir_start > pair->left_tir_end
-            || pair->right_tir_start > pair->right_tir_end) {
-        tir_pairs->nextfreeTIRPair--;
-        continue;
-      }
+  /* remove overlaps if wanted */
+  if (tir_stream->best_overlaps || tir_stream->no_overlaps) {
+    tir_stream->num_of_tirs = gt_tir_remove_overlaps(tir_pairs, &new,
+                                                     tir_stream->num_of_tirs,
+                                                     tir_stream->no_overlaps);
 
-      /* Calculate TIR lengths and distance*/
-      left_tir_length = pair->left_tir_end - pair->left_tir_start + 1;
-      right_tir_length = pair->right_tir_end - pair->right_tir_start + 1;
+    /* set references to the new array and free old array */
+    GT_FREEARRAY(tir_pairs, TIRPair);
+    tir_stream->tir_pairs = new;
+    tir_pairs = &new;
+  }
 
-      /* needed because of border change by search_forTSDs */
-      right_tir_start = GT_REVERSEPOS(total_length, pair->right_tir_end);
-      right_tir_end = GT_REVERSEPOS(total_length, pair->right_tir_start);
+  /* sort the tir_pairs */
+  gt_tir_sort_TIRs(tir_pairs, 0, tir_stream->num_of_tirs);
 
-      gt_assert(pair->right_tir_end - pair->right_tir_start + 1
-                  == (right_tir_end - right_tir_start + 1));
-      distance = pair->right_tir_start - pair->left_tir_start;
-
-      /* Realloc tir_char if length too large */
-      if (left_tir_length > max_left_length) {
-        max_left_length = left_tir_length;
-        ALLOCASSIGNSPACE(left_tir_char, left_tir_char, GtUchar,
-                         max_left_length);
-      }
-
-      if (right_tir_length > max_right_length) {
-        max_right_length = right_tir_length;
-        ALLOCASSIGNSPACE(right_tir_char, right_tir_char, GtUchar,
-                         max_right_length);
-      }
-
-      /* Store encoded substring */
-      gt_encseq_extract_encoded(encseq, left_tir_char, pair->left_tir_start,
-                                pair->left_tir_end);
-      gt_encseq_extract_encoded(encseq, right_tir_char, right_tir_start,
-                                right_tir_end);
-
-      /* Get edit distance */
-      edist = greedyunitedist(left_tir_char,(unsigned long) left_tir_length,
-                              right_tir_char,(unsigned long) right_tir_length);
-
-      /* Determine similarity */
-      pair->similarity = 100.0 * (1 - (((double) edist)/
-                        (MAX(left_tir_length, right_tir_length))));
-
-      /* Discard this candidate if lengths constrains not satisfied */
-      if (left_tir_length > tir_stream->max_TIR_length ||
-          right_tir_length > tir_stream->max_TIR_length ||
-          left_tir_length < tir_stream->min_TIR_length ||
-          right_tir_length < tir_stream->min_TIR_length) {
-        tir_pairs->nextfreeTIRPair--;
-      }
-      /* or if distance constraints not satisfies */
-      else if (distance > tir_stream->max_TIR_distance ||
-               distance < tir_stream->min_TIR_distance) {
-        tir_pairs->nextfreeTIRPair--;
-      }
-      /* or if similarity too small or increase number of TIRs*/
-      else if (gt_double_smaller_double(pair->similarity,
-                                        tir_stream->similarity_threshold)) {
-        tir_pairs->nextfreeTIRPair--;
-      } else {
-        tir_stream->num_of_tirs++;
-      }
-    }
-    FREESPACE(left_tir_char);
-    FREESPACE(right_tir_char);
-
-    /* initialize array for removing overlaps */
-    GT_INITARRAY(&new, TIRPair);
-
-    /* remove overlaps if wanted */
-    if (tir_stream->best_overlaps || tir_stream->no_overlaps) {
-      tir_stream->num_of_tirs = gt_tir_remove_overlaps(tir_pairs, &new,
-                                                       tir_stream->num_of_tirs,
-                                                       tir_stream->no_overlaps);
-
-      /* set references to the new array and free old array */
-      GT_FREEARRAY(tir_pairs, TIRPair);
-      tir_stream->tir_pairs = new;
-      tir_pairs = &new;
-    }
-
-    /* sort the tir_pairs */
-    gt_tir_sort_TIRs(tir_pairs, 0, tir_stream->num_of_tirs);
-
-    /* log output on console */
-    gt_log_log("TIRs found:\n");
-    for (count = 0; count < tir_stream->tir_pairs.nextfreeTIRPair; count++) {
-      gt_log_log("contig %lu\n left: start %lu, end %lu\n right: start %lu, "
-                 "end %lu\n similarity: %f\n\n",
-                 tir_stream->tir_pairs.spaceTIRPair[count].contignumber,
-                 tir_stream->tir_pairs.spaceTIRPair[count].left_tir_start,
-                 tir_stream->tir_pairs.spaceTIRPair[count].left_tir_end,
-                 tir_stream->tir_pairs.spaceTIRPair[count].right_tir_start,
-                 tir_stream->tir_pairs.spaceTIRPair[count].right_tir_end,
-                 tir_stream->tir_pairs.spaceTIRPair[count].similarity);
-    }
+  /* log output on console */
+  gt_log_log("TIRs found:\n");
+  for (count = 0; count < tir_stream->tir_pairs.nextfreeTIRPair; count++) {
+    gt_log_log("contig %lu\n left: start %lu, end %lu\n right: start %lu, "
+               "end %lu\n similarity: %f\n\n",
+               tir_stream->tir_pairs.spaceTIRPair[count].contignumber,
+               tir_stream->tir_pairs.spaceTIRPair[count].left_tir_start,
+               tir_stream->tir_pairs.spaceTIRPair[count].left_tir_end,
+               tir_stream->tir_pairs.spaceTIRPair[count].right_tir_start,
+               tir_stream->tir_pairs.spaceTIRPair[count].right_tir_end,
+               tir_stream->tir_pairs.spaceTIRPair[count].similarity);
   }
 
   return had_err;
@@ -724,7 +675,7 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
   tir_stream = gt_node_stream_cast(gt_tir_stream_class(), ns);
 
   /* generate and check seeds */
-  if (tir_stream->state == GT_TIR_STREAM_STATE_START) {
+/*   if (tir_stream->state == GT_TIR_STREAM_STATE_START) { */
     if (!had_err && gt_enumeratemaxpairs(tir_stream->ssar,
                       tir_stream->encseq,
                       gt_readmodeSequentialsuffixarrayreader(tir_stream->ssar),
@@ -734,6 +685,7 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
                       err) != 0) {
       had_err = -1;
     }
+
     /* extend seeds to TIRs and check TIRs */
     if (!had_err && gt_tir_searchforTIRs(tir_stream,
                                          &tir_stream->tir_pairs,
@@ -880,7 +832,7 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
       seqstartpos = gt_encseq_seqstartpos(tir_stream->encseq,
                                           pair->contignumber);
       seqid = gt_str_new_cstr("seq");
-      source = gt_str_new_cstr("PalanTIR");
+      source = gt_str_new_cstr("TIRvish");
 
       gt_str_append_ulong(seqid, pair->contignumber);
 
@@ -955,7 +907,6 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
       *gn = NULL;
     }
   }
-
   return had_err;
 }
 
@@ -984,7 +935,7 @@ GtNodeStream* gt_tir_stream_new(GtStr *str_indexname,
                                 unsigned long max_TIR_length,
                                 unsigned long min_TIR_distance,
                                 unsigned long max_TIR_distance,
-                                Arbitraryscores arbit_scores,
+                                GtXdropArbitraryscores arbit_scores,
                                 int xdrop_belowscore,
                                 double similarity_threshold,
                                 bool best_overlaps,
@@ -1034,10 +985,16 @@ GtNodeStream* gt_tir_stream_new(GtStr *str_indexname,
     gt_node_stream_delete(ns);
     return NULL;
   }
-
   tir_stream->encseq = gt_encseqSequentialsuffixarrayreader(tir_stream->ssar);
+  gt_assert(gt_encseq_is_mirrored(tir_stream->encseq));
   GT_INITARRAY(&tir_stream->seedinfo.seed, Seed);
   GT_INITARRAY(&tir_stream->tir_pairs, TIRPair);
+  tir_stream->seedinfo.num_of_contigs =
+                                 gt_encseq_num_of_sequences(tir_stream->encseq);
+  tir_stream->seedinfo.totallength =
+                                 gt_encseq_total_length(tir_stream->encseq);
+  tir_stream->seedinfo.midpos =
+                           (gt_encseq_total_length(tir_stream->encseq) - 1) / 2;
 
   if (!had_err)
     return ns;
