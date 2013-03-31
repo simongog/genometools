@@ -148,8 +148,7 @@ static int gt_tir_store_seeds(void *info, const GtEncseq *encseq,
 
   /* check distance constraints */
   distance = (GT_REVERSEPOS(seeds->totallength, pos2) - len + 1) - pos1;
-  if (distance < seeds->min_tir_distance || distance > seeds->max_tir_distance
-        || len > seeds->max_tir_length || len < seeds->min_tir_length)
+  if (distance < seeds->min_tir_distance || distance > seeds->max_tir_distance)
     return 0;
 
   /* check whether matches are on the `same' contig */
@@ -619,6 +618,8 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     pair->left_tir_start = seedptr->pos1 - xdropbest_left.ivalue;
     pair->left_tir_end = seedptr->pos1 + seedptr->len - 1
                             + xdropbest_right.ivalue;
+printf("%lu %lu %lu\n", pair->contignumber, pair->left_tir_start,
+                     pair->left_tir_end);
 
     /* We want the actual positions (not mirrored)
        end of mirrored is start of actual TIR */
