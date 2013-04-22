@@ -17,6 +17,7 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
+#include <string.h>
 #include "core/ma.h"
 #include "core/undef_api.h"
 #include "core/unused_api.h"
@@ -274,8 +275,9 @@ static void gt_tir_showargsline(int argc, const char **argv)
   printf("\n");
 }
 
-static int gt_tir_runner(int argc, const char **argv, GT_UNUSED int parsed_args,
-                         void *tool_arguments,  GtError *err)
+static int gt_tir_runner(GT_UNUSED int argc, GT_UNUSED const char **argv,
+                         GT_UNUSED int parsed_args, void *tool_arguments,
+                         GtError *err)
 {
   GtTirArguments *arguments = tool_arguments;
   GtNodeStream *tir_stream = NULL,
@@ -312,7 +314,7 @@ static int gt_tir_runner(int argc, const char **argv, GT_UNUSED int parsed_args,
   last_stream = gff3_out_stream;
 
   /* output arguments line */
-  gt_tir_showargsline(argc, argv);
+  /* gt_tir_showargsline(argc, argv); */
 
   /* pull the features through the stream and free them afterwards */
   if (!had_err)
