@@ -25,9 +25,10 @@ typedef struct GtORFFinderVisitor GtORFFinderVisitor;
 #include "core/encseq_api.h"
 #include "core/hashmap_api.h"
 #include "extended/node_visitor_api.h"
+#include "extended/region_mapping_api.h"
 
 const GtNodeVisitorClass* gt_orf_finder_visitor_class(void);
-GtNodeVisitor*            gt_orf_finder_visitor_new(GtEncseq *encseq,
+GtNodeVisitor*            gt_orf_finder_visitor_new(GtRegionMapping *rmap,
                                                     GtHashmap *types,
                                                     unsigned int min,
                                                     unsigned int max,

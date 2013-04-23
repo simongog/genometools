@@ -330,8 +330,8 @@ static int gt_tir_runner(GT_UNUSED int argc, GT_UNUSED const char **argv,
 GtTool* gt_tir(void)
 {
   return gt_tool_new(gt_tir_arguments_new,
-                  gt_tir_arguments_delete,
-                  gt_tir_option_parser_new,
-                  gt_tir_arguments_check,
-                  gt_tir_runner);
+                     gt_tir_arguments_delete,
+                     gt_tir_option_parser_new,
+                     gt_tir_arguments_check,
+                     gt_tir_runner);
 }

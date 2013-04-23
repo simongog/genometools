@@ -1,7 +1,7 @@
 /*
+  Copyright (c) 2012-2013 Sascha Steinbiss <steinbiss@zbh.uni-hamburg.de>
   Copyright (c) 2012      Manuela Beckert <9beckert@informatik.uni-hamburg.de>
   Copyright (c) 2012      Dorle Osterode <9osterod@informatik.uni-hamburg.de>
-  Copyright (c) 2012-2013 Sascha Steinbiss <steinbiss@zbh.uni-hamburg.de>
   Copyright (c) 2012-2013 Center for Bioinformatics, University of Hamburg
 
   Permission to use, copy, modify, and distribute this software for any
@@ -25,9 +25,11 @@
 #include "core/encseq.h"
 #include "core/log_api.h"
 #include "core/mathsupport.h"
+#include "core/md5_seqid.h"
 #include "core/minmax.h"
 #include "core/str_api.h"
 #include "core/undef_api.h"
+#include "extended/feature_type.h"
 #include "extended/genome_node.h"
 #include "extended/node_stream_api.h"
 #include "extended/region_node_api.h"
@@ -128,6 +130,7 @@ struct GtTIRStream
                               vicinity;
 };
 
+/* optimized to discard irrelevant seeds as soon as possible */
 static int gt_tir_store_seeds(void *info, const GtEncseq *encseq,
                               unsigned long len, unsigned long pos1,
                               unsigned long pos2, GtError *err)
@@ -166,18 +169,6 @@ static int gt_tir_store_seeds(void *info, const GtEncseq *encseq,
   if (len > seeds->max_tir_length)
     return 0;
 
-  /*char seq1[BUFSIZ], seq2[BUFSIZ];
-
-  printf("ctg %lu | pos1 %lu | pos2 %lu | offset %lu | len %lu | midpos %lu\n",
-         seqnum1, pos1, GT_REVERSEPOS(seeds->totallength, pos2) - len + 1,
-         distance, len, seeds->midpos);
-  gt_encseq_extract_decoded(encseq, seq1, pos1, pos1+len);
-  seq1[len] = '\0';
-  gt_encseq_extract_decoded(encseq, seq2,
-                            GT_REVERSEPOS(seeds->totallength, pos2) - len + 1,
-                            GT_REVERSEPOS(seeds->totallength, pos2) );
-  seq2[len] = '\0';
-  printf("%s  %s\n",seq1, seq2); */
   GT_GETNEXTFREEINARRAY(nextfreeseedpointer, &seeds->seed, Seed, 256);
   nextfreeseedpointer->pos1 = pos1;
   nextfreeseedpointer->pos2 = pos2;
@@ -187,7 +178,6 @@ static int gt_tir_store_seeds(void *info, const GtEncseq *encseq,
   return 0;
 }
 
-/* this function is a call back function to store all TSDs found */
 static int gt_tir_store_TSDs(void *info, GT_UNUSED const GtEncseq *encseq,
                              const GtQuerymatch *querymatch,
                              GT_UNUSED const GtUchar *query,
@@ -195,27 +185,15 @@ static int gt_tir_store_TSDs(void *info, GT_UNUSED const GtEncseq *encseq,
                              GT_UNUSED GtError *err)
 {
   Seed *nextfree;
-  char buf1[200], buf2[200];
   TSDinfo *TSDs = (TSDinfo *) info;
 
-  /* store the TSD at the next free index of info */
+  /* store the TSD  */
   GT_GETNEXTFREEINARRAY(nextfree, &TSDs->TSDs, Seed, 100);
   nextfree->pos1 = TSDs->left_start_pos + gt_querymatch_dbstart(querymatch);
   nextfree->offset = TSDs->right_start_pos
                        + gt_querymatch_querystart(querymatch)
                        - (nextfree->pos1);
   nextfree->len = gt_querymatch_querylen(querymatch);
-  gt_encseq_extract_decoded(TSDs->encseq,  buf1, nextfree->pos1,
-                            nextfree->pos1+nextfree->len-1);
-  buf1[nextfree->len] = '\0';
-  gt_encseq_extract_decoded(TSDs->encseq,  buf2,
-                            nextfree->pos1 + nextfree->offset,
-                            nextfree->pos1 + nextfree->offset
-                              + nextfree->len-1);
-  buf2[nextfree->len] = '\0';
-  printf("storing %lu %lu (%s %s)\n", nextfree->pos1, nextfree->pos1 +
-                                      nextfree->offset, buf1, buf2);
-
   return 0;
 }
 
@@ -232,7 +210,7 @@ static int gt_tir_compare_TIRs(const void *a, const void *b)
       if (pair1->right_transformed_start < pair2->right_transformed_start) {
         return -1;
       } else if (pair1->right_transformed_start
-                     == pair2->right_transformed_start) {
+                                            == pair2->right_transformed_start) {
         return 0;
       }
     }
@@ -298,20 +276,18 @@ static const TIRPair** tir_compactboundaries(unsigned long *numofboundaries,
   const TIRPair *bd, **bdptrtab;
 
   for (bd = pairs->spaceTIRPair; bd < pairs->spaceTIRPair +
-                                          pairs->nextfreeTIRPair; bd++)
-  {
-    if (!bd->skip)
-    {
+                                                 pairs->nextfreeTIRPair; bd++) {
+    gt_assert(bd != NULL);
+    if (!bd->skip) {
       countboundaries++;
     }
   }
   bdptrtab = gt_malloc(sizeof (TIRPair *) * countboundaries);
   nextfill = 0;
   for (bd = pairs->spaceTIRPair; bd < pairs->spaceTIRPair +
-                                          pairs->nextfreeTIRPair; bd++)
-  {
-    if (!bd->skip)
-    {
+                                                 pairs->nextfreeTIRPair; bd++) {
+    gt_assert(bd != NULL);
+    if (!bd->skip) {
       bdptrtab[nextfill++] = bd;
     }
   }
@@ -322,59 +298,48 @@ static const TIRPair** tir_compactboundaries(unsigned long *numofboundaries,
 static void gt_tir_find_best_TSD(TSDinfo *info, GtTIRStream *tir_stream,
                                  TIRPair *tir_pair)
 {
-  int i, j;
-  Seed *tsd;
   unsigned long tsd_length,
-                optimal_tsd_length,
                 new_left_tir_start = tir_pair->left_tir_start,
                 new_right_tir_end = tir_pair->right_tir_end,
                 new_cost_left = 0,
                 new_cost_right = 0,
                 best_cost = ULONG_MAX,
-                new_cost = 0;
-
-  printf("%lu TSD candidates\n", info->TSDs.nextfreeSeed);
+                new_cost = 0,
+                optimal_tsd_length = 0,
+                i;
 
   for (i = 0; i < info->TSDs.nextfreeSeed; i++) {
-    tsd = info->TSDs.spaceSeed + i;
-    optimal_tsd_length = tsd->len;
-    printf("find best TSD: %lu %lu (offset %lu) %lu\n", tsd->pos1,
-           tsd->pos1+tsd->offset, tsd->offset, tsd->len );
+    Seed *tsd = info->TSDs.spaceSeed + i;
 
     if (tsd->len < tir_stream->min_TSD_length) continue;
+    tsd_length = tsd->len;
+    if (tsd_length < tir_stream->max_TSD_length) {
+      if (tsd->pos1 + tsd_length - 1 < tir_pair->left_tir_start) {
+        new_cost_left = tir_pair->left_tir_start
+                          - (tsd->pos1 + tsd_length - 1);
+      } else {
+        new_cost_left = (tsd->pos1 + tsd_length - 1)
+                          - tir_pair->left_tir_start;
+      }
 
-    for (j = 0; j < tsd->len - tir_stream->min_TSD_length + 1; j++) {
-      tsd_length = tsd->len - j;
+      if (tir_pair->right_transformed_end < tsd->pos1 + tsd->offset) {
+        new_cost_right = (tsd->pos1 + tsd->offset)
+                           - tir_pair->right_transformed_end;
+      } else {
+        new_cost_right = tir_pair->right_transformed_end
+                           - (tsd->pos1 + tsd->offset);
+      }
+      new_cost = new_cost_left + new_cost_right;
 
-      if (tsd_length < tir_stream->max_TSD_length) {
-        if (tsd->pos1 + tsd_length - 1 < tir_pair->left_tir_start) {
-          new_cost_left = tir_pair->left_tir_start
-                            - (tsd->pos1 + tsd_length - 1);
-        } else {
-          new_cost_left = (tsd->pos1 + tsd_length - 1)
-                            - tir_pair->left_tir_start;
-        }
-
-        if (tir_pair->right_transformed_end < tsd->pos1 + tsd->offset) {
-          new_cost_right = (tsd->pos1 + tsd->offset)
-                             - tir_pair->right_transformed_end;
-        } else {
-          new_cost_right = tir_pair->right_transformed_end
-                             - (tsd->pos1 + tsd->offset);
-        }
-
-        new_cost = new_cost_left + new_cost_right;
-        if (new_cost < best_cost) {
-          best_cost = new_cost;
-          new_left_tir_start = tsd->pos1 + tsd_length;
-          new_right_tir_end = tsd->pos1 + tsd->offset - 1;
-          optimal_tsd_length = tsd_length;
-        }
+      if (new_cost < best_cost) {
+        best_cost = new_cost;
+        new_left_tir_start = tsd->pos1 + tsd_length;
+        new_right_tir_end = tsd->pos1 + tsd->offset - 1;
+        optimal_tsd_length = tsd_length;
       }
     }
   }
 
-  /* save the new borders and tsd length */
   if (info->TSDs.nextfreeSeed > 1) {
     tir_pair->left_tir_start = new_left_tir_start;
     tir_pair->right_transformed_end = new_right_tir_end;
@@ -383,11 +348,14 @@ static void gt_tir_find_best_TSD(TSDinfo *info, GtTIRStream *tir_stream,
     tir_pair->skip = true;
     return;
   }
-  printf("best TSD: %lu %lu %lu\n", new_left_tir_start,
-           new_right_tir_end, optimal_tsd_length);
+
+  /* XXX: if adjustment nullifies short TIRs, skip them */
+  if (tir_pair->right_transformed_end <= tir_pair->right_transformed_start)
+    tir_pair->skip = true;
+  if (tir_pair->left_tir_end <= tir_pair->left_tir_start)
+    tir_pair->skip = true;
 }
 
-/* this function searches for TSDs in the range of vicinity around the TIRs */
 static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
                                   const GtEncseq *encseq, GtError *err)
 {
@@ -426,15 +394,13 @@ static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
     end_left_tir = tir_pair->left_tir_start + tir_stream->vicinity;
   left_length = end_left_tir - start_left_tir + 1;
 
-  /* vicinity of 3'-border of right tir
-     do not align over 5'border of right tir */
+  /* do not align over 5'border of right tir */
   if (tir_pair->right_transformed_start > tir_pair->right_transformed_end
         - tir_stream->vicinity)
     start_right_tir = tir_pair->right_transformed_start;
   else
     start_right_tir = tir_pair->right_transformed_end - tir_stream->vicinity;
-  /* do not align into next sequence in case of need decrease alignment
-     length */
+  /* do not align into next sequence */
   if (tir_pair->right_transformed_end + tir_stream->vicinity > seq_end_pos2)
     end_right_tir = seq_end_pos2;
   else
@@ -443,13 +409,10 @@ static int gt_tir_search_for_TSDs(GtTIRStream *tir_stream, TIRPair *tir_pair,
 
   /* search for TSDs */
   if (tir_stream->min_TSD_length > 1U) {
-    /* dbseq (left) and query (right) are the encseqs wich will be aligned */
     GtUchar *dbseq, *query;
     dbseq = gt_calloc(left_length, sizeof (GtUchar));
     query = gt_calloc(right_length, sizeof (GtUchar));
 
-    /* TODO: vor einem aufruf hier passiert ab einer gewissen
-       größe ein speicherzugriffsfehler ??? */
     gt_encseq_extract_encoded(encseq, dbseq,
                               start_left_tir, end_left_tir);
     gt_encseq_extract_encoded(encseq, query,
@@ -495,13 +458,15 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
   unsigned long total_length = 0;
   unsigned long alilen,
                 seqstart1, seqend1,
-                seqstart2, seqend2;
+                seqstart2, seqend2,
+                edist, ulen, vlen;
   Seed *seedptr;
   TIRPair *pair;
   int had_err = 0;
   GtXdropbest xdropbest_left, xdropbest_right;
   GtSeqabstract *sa_useq = gt_seqabstract_new_empty(),
                 *sa_vseq = gt_seqabstract_new_empty();
+  GtFrontResource *frontresource = gt_frontresource_new(100UL);
   gt_error_check(err);
 
   xdropresources = gt_xdrop_resources_new(&tir_stream->arbit_scores);
@@ -515,15 +480,11 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     gt_assert(tir_stream->seedinfo.max_tir_length >= seedptr->len);
     alilen = tir_stream->seedinfo.max_tir_length - seedptr->len;
     seqstart1 = gt_encseq_seqstartpos(tir_stream->encseq,
-      \                               seedptr->contignumber);
+                                       seedptr->contignumber);
     seqend1 = seqstart1
                 + gt_encseq_seqlength(tir_stream->encseq,seedptr->contignumber);
     seqstart2 = GT_REVERSEPOS(total_length, seqend1);
     seqend2 = GT_REVERSEPOS(total_length, seqstart1);
-
-    /* printf("%lu\t%lu\t%lu\t%lu\t%lu\n", seedptr->contignumber, seedptr->pos1,
-                     seedptr->pos1 + seedptr->len - 1,
-                     seedptr->pos2, seedptr->pos2+seedptr->len - 1); */
 
     /* left (reverse) xdrop */
     if (seedptr->pos1 > seqstart1 && seedptr->pos2 > seqstart2)
@@ -586,9 +547,17 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
       xdropbest_right.score = 0;
     }
 
+    /* re-check length constraints */
+    if (seedptr->pos1 + seedptr->len - 1 + xdropbest_right.ivalue -
+        seedptr->pos2 - xdropbest_left.jvalue + 1 < tir_stream->min_TIR_length
+        || seedptr->pos1 + seedptr->len - 1 + xdropbest_right.ivalue -
+        seedptr->pos2 - xdropbest_left.jvalue + 1 < tir_stream->min_TIR_length)
+      continue;
+
     GT_GETNEXTFREEINARRAY(pair, &tir_stream->first_pairs, TIRPair, 256);
     /* Store positions for the found TIR */
     pair->contignumber = seedptr->contignumber;
+    pair->tsd_length = 0;
     pair->left_tir_start = seedptr->pos1 - xdropbest_left.ivalue;
     pair->left_tir_end = seedptr->pos1 + seedptr->len - 1
                             + xdropbest_right.ivalue;
@@ -603,12 +572,20 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
     pair->skip = false;
     tir_stream->num_of_tirs++;
 
+    /* TSDs */
     gt_tir_search_for_TSDs(tir_stream, pair, encseq, err);
 
-    printf("%lu\t%lu\t%lu\t%lu\t%lu\n\n", pair->contignumber,
-                     pair->left_tir_start, pair->left_tir_end,
-                     pair->right_transformed_start,
-                     pair->right_transformed_end);
+    /* determine and filter by similarity */
+    ulen = pair->left_tir_end - pair->left_tir_start + 1;
+    vlen = pair->right_tir_end - pair->right_tir_start + 1;
+    gt_seqabstract_reinit_encseq(sa_useq, encseq, ulen, pair->left_tir_start);
+    gt_seqabstract_reinit_encseq(sa_vseq, encseq, vlen, pair->right_tir_start);
+    edist = greedyunitedist(frontresource, sa_useq, sa_vseq);
+    pair->similarity = 100.0 * (1.0 - (double) edist/MAX(ulen, vlen));
+    if (gt_double_smaller_double(pair->similarity,
+                                 tir_stream->similarity_threshold)) {
+      pair->skip = true;
+    }
   }
 
   /* sort results after seed extension */
@@ -628,21 +605,10 @@ static int gt_tir_searchforTIRs(GtTIRStream *tir_stream,
                                                   &tir_stream->first_pairs);
   }
 
-  /* log output on console */
-  /* gt_log_log("%lu TIRs found:\n", tir_stream->tir_pairs.nextfreeTIRPair);
-  for (count = 0; count < tir_stream->tir_pairs.nextfreeTIRPair; count++) {
-    if (tir_stream->tir_pairs.spaceTIRPair[count].skip) continue;
-    gt_log_log("contig %lu\n left: start %lu, end %lu\n right: start %lu, "
-               "end %lu\n similarity: %f\n\n",
-               tir_stream->tir_pairs.spaceTIRPair[count].contignumber,
-               tir_stream->tir_pairs.spaceTIRPair[count].left_tir_start,
-               tir_stream->tir_pairs.spaceTIRPair[count].left_tir_end,
-              tir_stream->tir_pairs.spaceTIRPair[count].right_transformed_start,
-               tir_stream->tir_pairs.spaceTIRPair[count].right_transformed_end,
-               tir_stream->tir_pairs.spaceTIRPair[count].similarity);
-
-  }*/
-
+  gt_xdrop_resources_delete(xdropresources);
+  gt_seqabstract_delete(sa_useq);
+  gt_seqabstract_delete(sa_vseq);
+  gt_frontresource_delete(frontresource);
   return had_err;
 }
 
@@ -681,8 +647,6 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
     bool skip = false;
 
     /* check whether index is valid */
-    printf("i: %lu/total: %lu\n", tir_stream->cur_elem_index ,
-                                  tir_stream->num_of_tirs);
     if (tir_stream->cur_elem_index < tir_stream->num_of_tirs) {
       unsigned long seqnum,
                     seqlength;
@@ -699,18 +663,11 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
         while (tir_stream->prev_seqnum == seqnum) {
           tir_stream->cur_elem_index++;
 
-          printf("> i: %lu/total: %lu\n", tir_stream->cur_elem_index ,
-                                          tir_stream->num_of_tirs);
-
           /* do not go on if index is out of bounds */
           if (tir_stream->cur_elem_index >= tir_stream->num_of_tirs) {
             skip = true;
             break;
           }
-          gt_assert(tir_stream->cur_elem_index < tir_stream->num_of_tirs);
-
-          printf(">> i: %lu/total: %lu\n", tir_stream->cur_elem_index ,
-                                           tir_stream->num_of_tirs);
           seqnum =
                 tir_stream->tir_pairs[tir_stream->cur_elem_index]->contignumber;
         }
@@ -720,12 +677,26 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
       if (!skip) {
         tir_stream->prev_seqnum = seqnum;
         seqlength = gt_encseq_seqlength(tir_stream->encseq, seqnum);
+        seqid = gt_str_new();
 
-        /* TODO: add real description */
-        seqid = gt_str_new_cstr("seq");
+        if (gt_encseq_has_md5_support(tir_stream->encseq)) {
+          GtMD5Tab *md5_tab = NULL;
+          md5_tab = gt_encseq_get_md5_tab(tir_stream->encseq, err);
+          if (!md5_tab) {
+            had_err = -1;
+            gt_str_delete(seqid);
+          }
+          if (!had_err) {
+            gt_str_append_cstr(seqid, GT_MD5_SEQID_PREFIX);
+            gt_str_append_cstr(seqid, gt_md5_tab_get(md5_tab, seqnum));
+            gt_str_append_char(seqid, GT_MD5_SEQID_SEPARATOR);
+          }
+          gt_md5_tab_delete(md5_tab);
+        }
+        gt_str_append_cstr(seqid, "seq");
         gt_str_append_ulong(seqid, seqnum);
-        rn = gt_region_node_new(seqid, 1, seqlength);
 
+        rn = gt_region_node_new(seqid, 1, seqlength);
         gt_str_delete(seqid);
         *gn = rn;
         tir_stream->cur_elem_index++;
@@ -762,14 +733,14 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
         /* else get seqnum of next contig */
         while (tir_stream->prev_seqnum == seqnum) {
           tir_stream->cur_elem_index++;
+
           if (tir_stream->cur_elem_index >= tir_stream->num_of_tirs) {
             skip = true;
             break;
           }
-        }
-
-        seqnum =
+          seqnum =
                 tir_stream->tir_pairs[tir_stream->cur_elem_index]->contignumber;
+        }
       }
 
       /* create a new comment node */
@@ -812,19 +783,41 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
       const TIRPair *pair =
                 tir_stream->tir_pairs[tir_stream->cur_elem_index];
       unsigned long seqstartpos;
+      char buf[BUFSIZ];
+
+      gt_assert(!pair->skip);
+      gt_assert(pair->tsd_length > 0);
 
       seqstartpos = gt_encseq_seqstartpos(tir_stream->encseq,
                                           pair->contignumber);
-      seqid = gt_str_new_cstr("seq");
+      seqid = gt_str_new();
       source = gt_str_new_cstr("TIRvish");
 
+      if (gt_encseq_has_md5_support(tir_stream->encseq)) {
+        GtMD5Tab *md5_tab = NULL;
+        md5_tab = gt_encseq_get_md5_tab(tir_stream->encseq, err);
+        if (!md5_tab) {
+          had_err = -1;
+          gt_str_delete(seqid);
+        }
+        if (!had_err) {
+          gt_str_append_cstr(seqid, GT_MD5_SEQID_PREFIX);
+          gt_str_append_cstr(seqid, gt_md5_tab_get(md5_tab,
+                                                   pair->contignumber));
+          gt_str_append_char(seqid, GT_MD5_SEQID_SEPARATOR);
+        }
+        gt_md5_tab_delete(md5_tab);
+      }
+      gt_str_append_cstr(seqid, "seq");   /* XXX */
       gt_str_append_ulong(seqid, pair->contignumber);
 
       /* repeat region */
 
-      node = gt_feature_node_new(seqid, "repeat_region",
-                                 pair->left_tir_start - seqstartpos + 1,
-                                 pair->right_transformed_end - seqstartpos + 1,
+      node = gt_feature_node_new(seqid, gt_ft_repeat_region,
+                                 pair->left_tir_start - seqstartpos -
+                                   pair->tsd_length + 1,
+                                 pair->right_transformed_end - seqstartpos
+                                   + pair->tsd_length + 1,
                                  GT_STRAND_UNKNOWN);
       gt_feature_node_set_source((GtFeatureNode*) node, source);
       *gn = node;
@@ -834,21 +827,18 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
 
       if (tir_stream->min_TSD_length > 1U) {
         node = gt_feature_node_new(seqid,
-                       "target_site_duplication",
+                       gt_ft_target_site_duplication,
                        pair->left_tir_start - seqstartpos + 1
                          - pair->tsd_length,
-                       pair->left_tir_end - seqstartpos,
+                       pair->left_tir_start - seqstartpos,
                        GT_STRAND_UNKNOWN);
         gt_feature_node_set_source((GtFeatureNode*) node, source);
         gt_feature_node_add_child((GtFeatureNode*) parent,
                       (GtFeatureNode*) node);
 
-        /* XXX: why was
-           here +2 in
-         LTRharvest? */
         node = gt_feature_node_new(seqid,
-                       "target_site_duplication",
-                       pair->right_transformed_start - seqstartpos + 1,
+                       gt_ft_target_site_duplication,
+                       pair->right_transformed_end - seqstartpos + 2,
                        pair->right_transformed_end - seqstartpos + 1
                        + pair->tsd_length,
                        GT_STRAND_UNKNOWN);
@@ -859,17 +849,21 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
 
       /* terminal inverted repeat element */
 
-      node = gt_feature_node_new(seqid, "terminal_inverted_repeat_element",
+      node = gt_feature_node_new(seqid, gt_ft_terminal_inverted_repeat_element,
                                  pair->left_tir_start - seqstartpos + 1,
                                  pair->right_transformed_end - seqstartpos +1,
                                  GT_STRAND_UNKNOWN);
-      gt_feature_node_set_source((GtFeatureNode*)node, source);
-      gt_feature_node_add_child((GtFeatureNode*)parent, (GtFeatureNode*)node);
+      gt_feature_node_set_source((GtFeatureNode*) node, source);
+      gt_feature_node_add_child((GtFeatureNode*) parent, (GtFeatureNode*)node);
+      (void) snprintf(buf, BUFSIZ-1, "%.2f", pair->similarity);
+      gt_feature_node_set_attribute((GtFeatureNode*) node,
+                                    "tir_similarity",
+                                    buf);
       parent = node;
 
       /* left terminal inverted repeat */
 
-      node = gt_feature_node_new(seqid, "terminal_inverted_repeat",
+      node = gt_feature_node_new(seqid, gt_ft_terminal_inverted_repeat,
                                  pair->left_tir_start - seqstartpos + 1,
                                  pair->left_tir_end - seqstartpos + 1,
                                  GT_STRAND_UNKNOWN);
@@ -878,7 +872,7 @@ static int gt_tir_stream_next(GtNodeStream *ns, GT_UNUSED GtGenomeNode **gn,
 
       /* right terminal inverted repeat */
 
-      node = gt_feature_node_new(seqid, "terminal_inverted_repeat",
+      node = gt_feature_node_new(seqid, gt_ft_terminal_inverted_repeat,
                                 pair->right_transformed_start - seqstartpos + 1,
                                 pair->right_transformed_end - seqstartpos + 1,
                                 GT_STRAND_UNKNOWN);
@@ -903,6 +897,8 @@ static void gt_tir_stream_free(GtNodeStream *ns)
   gt_str_delete(tir_stream->str_indexname);
   if (tir_stream->ssar != NULL)
     gt_freeSequentialsuffixarrayreader(&tir_stream->ssar);
+  if (tir_stream->tir_pairs != NULL)
+    gt_free(tir_stream->tir_pairs);
 }
 
 const GtNodeStreamClass* gt_tir_stream_class(void)

@@ -36,6 +36,7 @@
 #include "extended/gff3_in_stream.h"
 #include "extended/gff3_out_stream_api.h"
 #include "extended/orf_finder_stream.h"
+#include "extended/seqid2file.h"
 #include "gt_orffinder.h"
 
 typedef struct {
@@ -46,6 +47,7 @@ typedef struct {
   GtOutputFileInfo *ofi;
   bool allorfs,
        verbose;
+  GtSeqid2FileInfo *s2fi;
 } GtOrffinderArguments;
 
 static void* gt_orffinder_arguments_new(void)
@@ -53,6 +55,7 @@ static void* gt_orffinder_arguments_new(void)
   GtOrffinderArguments *arguments = gt_calloc(1, sizeof *arguments);
   arguments->ofi = gt_output_file_info_new();
   arguments->types = gt_str_array_new();
+  arguments->s2fi = gt_seqid2file_info_new();
   return arguments;
 }
 
@@ -63,6 +66,7 @@ static void gt_orffinder_arguments_delete(void *tool_arguments)
   gt_file_delete(arguments->outfp);
   gt_output_file_info_delete(arguments->ofi);
   gt_str_array_delete(arguments->types);
+  gt_seqid2file_info_delete(arguments->s2fi);
   gt_free(arguments);
 }
 
@@ -108,7 +112,9 @@ static GtOptionParser* gt_orffinder_option_parser_new(void *tool_arguments)
 
   gt_output_file_info_register_options(arguments->ofi, op, &arguments->outfp);
 
-  gt_option_parser_set_min_args(op, 1U);
+  /* region mapping and sequence source options */
+
+  gt_seqid2file_register_options_ext(op, arguments->s2fi, false, false);
 
   return op;
 }
@@ -142,12 +148,10 @@ static int gt_orffinder_runner(int argc, const char **argv,
                *orffinder_stream = NULL,
                *gff3_out_stream  = NULL;
   int had_err = 0, i = 0, arg = parsed_args;
-  const char *indexname = argv[arg];
   GtLogger *logger = gt_logger_new(arguments->verbose,
                                    GT_LOGGER_DEFLT_PREFIX, stderr);
   GtHashmap *types;
-  GtEncseqLoader *el;
-  GtEncseq *encseq;
+  GtRegionMapping *rmap;
 
   gt_error_check(err);
   gt_assert(arguments);
@@ -166,20 +170,16 @@ static int gt_orffinder_runner(int argc, const char **argv,
     }
   }
 
-  /* Set sequence encoder options. */
-  el = gt_encseq_loader_new();
-  gt_encseq_loader_set_logger(el, logger);
-
-  /* Open sequence file */
-  encseq = gt_encseq_loader_load(el, indexname, err);
-  if (!encseq)
+  /* create region mapping */
+  rmap = gt_seqid2file_region_mapping_new(arguments->s2fi, err);
+  if (!rmap)
     had_err = -1;
 
   if (!had_err) {
     last_stream = gff3_in_stream  = gt_gff3_in_stream_new_unsorted(argc - arg,
                                                                   argv + arg);
     last_stream = orffinder_stream = gt_orf_finder_stream_new(last_stream,
-                                                             encseq,
+                                                             rmap,
                                                              types,
                                                              arguments->min,
                                                              arguments->max,
@@ -200,9 +200,6 @@ static int gt_orffinder_runner(int argc, const char **argv,
     gt_node_stream_delete(gff3_in_stream);
     gt_node_stream_delete(gff3_out_stream);
   }
-  gt_encseq_loader_delete(el);
-  gt_encseq_delete(encseq);
-  encseq = NULL;
   gt_hashmap_delete(types);
   types = NULL;
   gt_logger_delete(logger);
